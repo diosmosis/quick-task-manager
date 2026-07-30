@@ -12,15 +12,22 @@ import {
   purgeExpired
 } from './utils/tasks.js'
 
-const COLUMNS_KEY = 'qtm.priorityColumns'
+// The column list used to live here, in localStorage. It now lives in the
+// SQLite store with the tasks; this key is only read once, to carry an existing
+// list over, and is then stamped as migrated so it can't be imported twice.
+const LEGACY_COLUMNS_KEY = 'qtm.priorityColumns'
 
-function loadColumns() {
+function takeLegacyColumns() {
   try {
-    const raw = localStorage.getItem(COLUMNS_KEY)
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed : []
+    const raw = localStorage.getItem(LEGACY_COLUMNS_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    localStorage.setItem(`${LEGACY_COLUMNS_KEY}.migrated`, raw)
+    localStorage.removeItem(LEGACY_COLUMNS_KEY)
+    return parsed
   } catch {
-    return []
+    return null
   }
 }
 
@@ -28,12 +35,14 @@ export default function App() {
   const [tasks, setTasks] = useState([])
   const [view, setView] = useState('inbox')
   const [now, setNow] = useState(Date.now())
-  const [columns, setColumns] = useState(loadColumns)
+  const [columns, setColumns] = useState([])
   // The task the user is currently focused on. Intentionally in-memory only —
   // it must not persist beyond a single run.
   const [focusTaskId, setFocusTaskId] = useState(null)
   const loaded = useRef(false)
+  const columnsLoaded = useRef(false)
   const tasksRef = useRef(tasks)
+  const columnsRef = useRef(columns)
 
   // Load persisted tasks once on startup and purge anything past retention.
   useEffect(() => {
@@ -50,10 +59,35 @@ export default function App() {
     }
   }, [])
 
-  // Keep a ref to the latest tasks so the close-time flush can read them.
+  // Load the persisted column list once on startup, importing the pre-SQLite
+  // localStorage list the first time this version runs.
+  useEffect(() => {
+    let cancelled = false
+    window.api.loadColumns().then((stored) => {
+      if (cancelled) return
+      if (Array.isArray(stored)) {
+        setColumns(stored)
+      } else {
+        const legacy = takeLegacyColumns()
+        if (legacy) setColumns(legacy)
+      }
+      // Only set once the load actually succeeded: a rejected load leaves this
+      // false, so a failed read can never be written back over a good list.
+      columnsLoaded.current = true
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Keep refs to the latest state so the close-time flush can read them.
   useEffect(() => {
     tasksRef.current = tasks
   }, [tasks])
+
+  useEffect(() => {
+    columnsRef.current = columns
+  }, [columns])
 
   // Persist tasks whenever they change (after the initial load).
   useEffect(() => {
@@ -66,14 +100,17 @@ export default function App() {
   useEffect(() => {
     const flush = () => {
       if (loaded.current) window.api.saveTasksSync(tasksRef.current)
+      if (columnsLoaded.current) window.api.saveColumnsSync(columnsRef.current)
     }
     window.addEventListener('beforeunload', flush)
     return () => window.removeEventListener('beforeunload', flush)
   }, [])
 
-  // Persist which tag columns are shown in the prioritization view.
+  // Persist which tag columns are shown in the prioritization view (after the
+  // initial load, so the empty starting state is never saved over a real list).
   useEffect(() => {
-    localStorage.setItem(COLUMNS_KEY, JSON.stringify(columns))
+    if (!columnsLoaded.current) return
+    window.api.saveColumns(columns)
   }, [columns])
 
   // Tick so time-based rules (15-min hide, 14-day purge, recurring due dates)

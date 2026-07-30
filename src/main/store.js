@@ -21,6 +21,10 @@ const ADDED_COLUMNS = [
   ['spawnedFrom', 'TEXT']
 ]
 
+// Keys used in the `settings` table (small bits of UI state that must be as
+// durable as the tasks themselves).
+const COLUMNS_SETTING = 'priorityColumns'
+
 const MAX_BACKUPS = 3
 const BACKUP_PREFIX = 'tasks-'
 const BACKUP_SUFFIX = '.db'
@@ -84,6 +88,30 @@ export function saveTasks(tasks) {
 
 export function loadTasks() {
   return db.prepare('SELECT * FROM tasks').all().map(rowToTask)
+}
+
+// The prioritization view's column list. Returns null — not [] — when it has
+// never been stored, so the caller can tell "no columns" apart from "no value
+// yet" and never mistakes a missing row for a deliberately empty list.
+export function loadColumns() {
+  const row = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get(COLUMNS_SETTING)
+  if (!row) return null
+  try {
+    const parsed = JSON.parse(row.value)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+export function saveColumns(columns) {
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+    COLUMNS_SETTING,
+    JSON.stringify(Array.isArray(columns) ? columns : [])
+  )
+  return true
 }
 
 // One-time import of a legacy tasks.json file, if present and the DB is empty.
@@ -150,6 +178,18 @@ export function initStore() {
        dueAt INTEGER,
        autoPrioritizedFor INTEGER,
        spawnedFrom TEXT
+     )`
+  )
+
+  // UI state that used to live in the renderer's localStorage. Chromium commits
+  // localStorage lazily (~5s) and it is per-origin and per-profile-lock, so a
+  // non-graceful exit, a dev/packaged origin switch, or a second instance could
+  // all lose it. Keeping it here makes it exactly as durable as the tasks, and
+  // it rides along in the daily backup for free.
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS settings (
+       key TEXT PRIMARY KEY,
+       value TEXT NOT NULL
      )`
   )
 
