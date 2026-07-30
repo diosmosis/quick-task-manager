@@ -1,0 +1,857 @@
+:root {
+  --bg: #1a1c20;
+  --bg-elev: #24272e;
+  --bg-elev-2: #2c3038;
+  --border: #383c45;
+  --text: #e6e8ec;
+  --text-dim: #9aa0ab;
+  --accent: #4f8cff;
+  --accent-dim: #2f4a7a;
+  --star: #f5c518;
+  --danger: #ff6b6b;
+  --due: #f0a04b;
+  /* Colors of the "Working on" focus zone, shared with the marker its task
+     carries in the prioritization columns. */
+  --focus-a: #3a5bd0;
+  --focus-b: #7d3ad0;
+  --radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbars: thin, translucent overlays that sit on top of the content instead
+   of the chunky native bars, which used to eat ~15px of a column's width and
+   push its contents out of the layout. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(154, 160, 171, 0.28);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(154, 160, 171, 0.55);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Header + tabs */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 20px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.app-header h1 {
+  font-size: 16px;
+  margin: 0;
+  font-weight: 600;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.tab {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tab:hover {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+.tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.app-main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+}
+
+.view {
+  flex: 1;
+  padding: 20px 12px 20px 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* Reserve the (thin) scrollbar track so content never reflows when it appears. */
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.priority-view {
+  padding: 20px;
+  overflow: hidden;
+}
+
+/* Inbox: header (input + filters) stays fixed, only the list scrolls */
+.view.inbox-view {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.inbox-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.inbox-list {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 14px 12px 20px 20px;
+}
+
+/* Inputs and buttons */
+input[type='text'],
+input[type='number'],
+select {
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 14px;
+  outline: none;
+}
+
+input[type='text']:focus,
+input[type='number']:focus,
+select:focus {
+  border-color: var(--accent);
+}
+
+input:disabled,
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Custom-styled select to match the app */
+.select-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.select-wrap select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  padding-right: 30px;
+  cursor: pointer;
+}
+
+.select-wrap select:hover {
+  border-color: var(--accent);
+}
+
+.select-wrap::after {
+  content: '▾';
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.btn-primary,
+.btn-ghost {
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.btn-ghost:hover {
+  color: var(--text);
+}
+
+.task-input {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* min-width: 0 lets the input shrink below its intrinsic width in narrow
+   containers (e.g. a prioritization column) instead of overflowing it. */
+.task-input input {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-input button {
+  flex-shrink: 0;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-input {
+  flex: 1;
+  min-width: 180px;
+}
+
+/* Task list */
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-item.editing {
+  padding: 8px;
+}
+
+.task-item.draggable {
+  cursor: grab;
+}
+
+.task-item.draggable:active {
+  cursor: grabbing;
+}
+
+.task-item.completed .task-desc {
+  text-decoration: line-through;
+}
+
+.task-item.completed {
+  opacity: 0.5;
+}
+
+.task-body {
+  flex: 1;
+  min-width: 0;
+  cursor: text;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.task-desc {
+  word-break: break-word;
+}
+
+.task-tags {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tag-chip {
+  background: var(--accent-dim);
+  color: #cfe0ff;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.task-meta {
+  flex-basis: 100%;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* Recurring tasks: the schedule chip, and the "needs doing" state it takes on
+   once the task comes due. */
+.recur-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+}
+
+.recur-chip.due {
+  color: #ffdfb8;
+  background: rgba(240, 160, 75, 0.18);
+  border-color: var(--due);
+  font-weight: 600;
+}
+
+.task-item.due {
+  border-color: var(--due);
+  box-shadow: inset 3px 0 0 var(--due);
+}
+
+.task-item.due .task-desc {
+  color: #ffe6c9;
+}
+
+/* The item currently in the "Working on" zone, marked in its column so it is
+   easy to find (and complete). It reuses the focus zone's gradient and glow —
+   declared after `.due` so a task that is both keeps the focus treatment. */
+.task-item.focused {
+  border-color: transparent;
+  background:
+    linear-gradient(135deg, rgba(58, 91, 208, 0.42), rgba(125, 58, 208, 0.42)),
+    var(--bg-elev);
+  box-shadow:
+    inset 3px 0 0 var(--focus-b),
+    0 0 0 1px rgba(125, 58, 208, 0.75),
+    0 2px 14px rgba(79, 90, 220, 0.4);
+}
+
+/* A focused subtask marks its row, plus its parent card with a quieter ring so
+   the card still stands out among the column's other tasks. */
+.task-item.has-focused-subtask {
+  border-color: transparent;
+  box-shadow:
+    inset 3px 0 0 var(--focus-b),
+    0 0 0 1px rgba(125, 58, 208, 0.5);
+}
+
+.subtask-item.focused {
+  background: linear-gradient(135deg, rgba(58, 91, 208, 0.42), rgba(125, 58, 208, 0.42));
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.subtask-item.focused .subtask-desc {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 🎯 badge, matching the empty focus zone's prompt. */
+.focus-marker {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1;
+  /* Sit beside the first line of a description that wraps, not centred on it. */
+  align-self: flex-start;
+  margin-top: 3px;
+}
+
+/* Recurrence editor (shown while editing a task) */
+.recur-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 4px 2px;
+}
+
+.recur-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.recur-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.recur-toggle input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.recur-every {
+  width: 64px;
+  flex-shrink: 0;
+}
+
+.recur-next {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.task-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Subtasks (display) */
+.subtask-list {
+  list-style: none;
+  margin: 0 0 0 6px;
+  padding: 2px 0 0 10px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.subtask-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  min-width: 0;
+}
+
+.subtask-item.draggable {
+  cursor: grab;
+}
+
+.subtask-item.draggable:active {
+  cursor: grabbing;
+}
+
+.subtask-desc {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.subtask-item.completed .subtask-desc {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+
+.subtask-item .icon-btn {
+  width: 22px;
+  height: 22px;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+/* Subtask completion checkbox: keep it visibly a control, not a passive mark. */
+.subtask-check {
+  color: var(--text);
+}
+
+.subtask-check.active {
+  color: var(--accent);
+}
+
+/* Subtasks (editor, shown while editing a task) */
+.subtask-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 4px 2px;
+}
+
+.subtask-editor-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.subtask-edit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.subtask-edit-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elev-2);
+  border-radius: 6px;
+  padding: 4px 6px 4px 10px;
+}
+
+.subtask-edit-desc {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.subtask-add {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.subtask-add input {
+  flex: 1;
+  min-width: 0;
+}
+
+.subtask-add button {
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 15px;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.icon-btn:hover {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+.icon-btn.active {
+  color: var(--star);
+}
+
+/* "Working on" focus zone */
+.focus-zone {
+  flex-shrink: 0;
+  border-radius: 12px;
+  padding: 14px 18px;
+  position: relative;
+  transition: transform 0.12s ease, box-shadow 0.2s ease;
+}
+
+.focus-zone.empty {
+  border: 2px dashed var(--accent);
+  background: linear-gradient(135deg, rgba(79, 140, 255, 0.08), rgba(79, 140, 255, 0.02));
+}
+
+.focus-zone.filled {
+  border: 2px solid transparent;
+  background: linear-gradient(135deg, var(--focus-a), var(--focus-b));
+  box-shadow: 0 6px 22px rgba(79, 90, 220, 0.45);
+  animation: focus-glow 2.6s ease-in-out infinite;
+}
+
+.focus-zone.drag-over {
+  transform: scale(1.01);
+  box-shadow: 0 0 0 3px var(--accent), 0 8px 26px rgba(79, 140, 255, 0.5);
+}
+
+@keyframes focus-glow {
+  0%,
+  100% {
+    box-shadow: 0 6px 22px rgba(79, 90, 220, 0.4);
+  }
+  50% {
+    box-shadow: 0 6px 30px rgba(125, 58, 208, 0.65);
+  }
+}
+
+.focus-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.focus-zone.filled .focus-label {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.focus-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.focus-task {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.focus-parent {
+  flex-basis: 100%;
+  font-size: 12px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.focus-desc {
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+  word-break: break-word;
+}
+
+.focus-tags {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.focus-clear {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.focus-clear:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.focus-empty-hint {
+  color: var(--text-dim);
+  font-size: 15px;
+  font-weight: 500;
+  padding: 6px 0;
+}
+
+/* Prioritization columns */
+.column-adder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 14px;
+  /* Only the column strip may scroll sideways (when there are more columns than
+     fit); nothing inside a column ever should. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  min-width: 300px;
+  flex-shrink: 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-top: 3px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+}
+
+.column-header:active {
+  cursor: grabbing;
+}
+
+.column-header h3 {
+  margin: 0;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.column-header .icon-btn {
+  flex-shrink: 0;
+}
+
+.drag-grip {
+  color: var(--text-dim);
+  margin-right: 7px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.column.dragging {
+  opacity: 0.45;
+}
+
+.column.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.column-search {
+  position: relative;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.column-search input {
+  width: 100%;
+}
+
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 12px;
+  right: 12px;
+  z-index: 10;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 4px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.search-results li {
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-results li:hover {
+  background: var(--accent-dim);
+}
+
+.search-results li.search-empty {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.search-results li.search-empty:hover {
+  background: transparent;
+}
+
+.column-body {
+  flex: 1;
+  min-height: 0;
+  /* A vertical scrollbar here must never induce a horizontal one, and the space
+     it needs is reserved up-front so adding tasks doesn't reflow the column. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 10px 4px 10px 12px;
+}
+
+/* Misc */
+.empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 24px;
+}
+
+.empty.small {
+  padding: 12px;
+  font-size: 13px;
+}

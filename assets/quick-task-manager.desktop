@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Quick Task Manager
+GenericName=Task Manager
+Comment=Organize, tag, and prioritize tasks
+Exec=/home/dizzy/Projects/tools/quick-task-manager/launch.sh
+Icon=/home/dizzy/Projects/tools/quick-task-manager/assets/icon.svg
+Terminal=false
+StartupNotify=true
+StartupWMClass=quick-task-manager
+Categories=Office;ProjectManagement;
+Keywords=task;todo;manager;organize;priority;

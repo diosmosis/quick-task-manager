@@ -1,0 +1,6 @@
+thoughts/
+
+node_modules/
+out/
+dist/
+*.log
