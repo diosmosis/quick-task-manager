@@ -97,6 +97,12 @@ function daysInMonth(year, month) {
   return new Date(year, month + 1, 0).getDate()
 }
 
+function startOfDay(ms) {
+  const d = new Date(ms)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
 // Advance a timestamp by one recurrence interval, keeping the local time of day
 // (so DST shifts don't creep). Month steps clamp to the last day of the target
 // month, i.e. Jan 31 + 1 month = Feb 28, not Mar 3.
@@ -116,30 +122,39 @@ export function addInterval(ms, recurrence) {
   return d.getTime()
 }
 
-// The next due date strictly after `now`. Stepping from the previous due date
-// (rather than from `now`) keeps a schedule on its original cadence when a task
-// is completed late; the loop then skips any occurrences that were missed.
+// The next due date, on a later day than `now`. Stepping from the previous due
+// date (rather than from `now`) keeps a schedule on its original cadence when a
+// task is completed late; the loop then skips any occurrences that were missed.
+//
+// The comparison is by day rather than by instant because a task counts as due
+// for its whole due day (see isDue). Landing the follow-up occurrence on the
+// day the previous one was finished would make it due — and so auto-prioritized
+// — immediately, which is exactly what "the copy should not be prioritized"
+// rules out.
 export function nextDueDate(from, recurrence, now) {
+  const today = startOfDay(now)
   let next = addInterval(from, recurrence)
   let guard = 0
-  while (next <= now && guard++ < 10000) next = addInterval(next, recurrence)
+  while (startOfDay(next) <= today && guard++ < 10000) next = addInterval(next, recurrence)
   return next
 }
 
+// A task is due for the whole of its due day, not just from its due time
+// onwards: something due at 6pm today is something you need to do today, and
+// waiting until 6pm to surface it is too late to be useful.
 export function isDue(task, now) {
-  return !!task.recurrence && !task.completed && task.dueAt != null && task.dueAt <= now
+  return (
+    !!task.recurrence &&
+    !task.completed &&
+    task.dueAt != null &&
+    startOfDay(task.dueAt) <= startOfDay(now)
+  )
 }
 
 export function describeRecurrence(recurrence) {
   if (!recurrence) return ''
   const { every, unit } = recurrence
   return every === 1 ? `every ${unit}` : `every ${every} ${unit}s`
-}
-
-function startOfDay(ms) {
-  const d = new Date(ms)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
 }
 
 // Short, human-readable "when is this due" label for a task chip.
