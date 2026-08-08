@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import InboxView from './components/InboxView.jsx'
 import PriorityView from './components/PriorityView.jsx'
 import ArchiveView from './components/ArchiveView.jsx'
+import PluginsView from './components/PluginsView.jsx'
+import { collectTexts, invalidateAll, invalidateTexts, prime } from './utils/decorate.js'
 import {
   applyDueRecurring,
   createTask,
@@ -47,15 +49,33 @@ export default function App() {
   // Load persisted tasks once on startup and purge anything past retention.
   useEffect(() => {
     let cancelled = false
-    window.api.loadTasks().then((stored) => {
+    window.api.loadTasks().then(async (stored) => {
       if (cancelled) return
       const t = Date.now()
       // Recurring tasks that came due while the app was closed are picked up here.
-      setTasks(applyDueRecurring(purgeExpired(stored, t), t))
+      const next = applyDueRecurring(purgeExpired(stored, t), t)
+      // Decorate every description before the first paint, so tasks don't
+      // render as plain text and then visibly gain their plugin links.
+      await prime(collectTexts(next))
+      if (cancelled) return
+      setTasks(next)
       loaded.current = true
     })
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  // Plugin state changed, or a plugin finished a background lookup — either
+  // way some decorations are stale and every visible description re-resolves.
+  useEffect(() => {
+    const offChanged = window.api.onPluginsChanged((epoch) => invalidateAll(epoch))
+    const offInvalidated = window.api.onDecorationInvalidated((texts) =>
+      invalidateTexts(texts)
+    )
+    return () => {
+      offChanged()
+      offInvalidated()
     }
   }, [])
 
@@ -131,24 +151,49 @@ export default function App() {
     return () => clearInterval(id)
   }, [])
 
+  // Post an event hook to the plugin host. Fire-and-forget: no plugin can
+  // change or block what the app does here.
+  const emitPlugin = useCallback((name, id, changes) => {
+    const task = tasksRef.current.find((t) => t.id === id)
+    if (task) window.api.emitPluginEvent(name, { task: { ...task, ...changes } })
+  }, [])
+
   const addTask = useCallback((text) => {
-    setTasks((prev) => [createTask(text), ...prev])
+    const task = createTask(text)
+    setTasks((prev) => [task, ...prev])
+    window.api.emitPluginEvent('task:created', { task })
   }, [])
 
-  const editTask = useCallback((id, text) => {
-    const { description, tags } = parseInput(text)
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, description, tags } : t))
-    )
-  }, [])
+  const editTask = useCallback(
+    (id, text) => {
+      const { description, tags } = parseInput(text)
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, description, tags } : t))
+      )
+      emitPlugin('task:updated', id, { description, tags })
+    },
+    [emitPlugin]
+  )
 
-  const togglePriority = useCallback((id) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, prioritized: !t.prioritized } : t))
-    )
-  }, [])
+  const togglePriority = useCallback(
+    (id) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, prioritized: !t.prioritized } : t))
+      )
+      const task = tasksRef.current.find((t) => t.id === id)
+      if (task) emitPlugin('task:prioritized', id, { prioritized: !task.prioritized })
+    },
+    [emitPlugin]
+  )
 
   const toggleComplete = useCallback((id) => {
+    const before = tasksRef.current.find((t) => t.id === id)
+    if (before) {
+      window.api.emitPluginEvent(
+        before.completed ? 'task:uncompleted' : 'task:completed',
+        { task: { ...before, completed: !before.completed } }
+      )
+    }
     setTasks((prev) => {
       const task = prev.find((t) => t.id === id)
       if (!task) return prev
@@ -262,7 +307,8 @@ export default function App() {
           {[
             ['inbox', 'Inbox'],
             ['priority', 'Prioritize'],
-            ['archive', 'Archive']
+            ['archive', 'Archive'],
+            ['plugins', 'Plugins']
           ].map(([key, label]) => (
             <button
               key={key}
@@ -317,6 +363,7 @@ export default function App() {
             onRemoveSubtask={removeSubtask}
           />
         )}
+        {view === 'plugins' && <PluginsView />}
       </main>
     </div>
   )

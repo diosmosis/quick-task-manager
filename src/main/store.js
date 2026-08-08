@@ -90,28 +90,83 @@ export function loadTasks() {
   return db.prepare('SELECT * FROM tasks').all().map(rowToTask)
 }
 
-// The prioritization view's column list. Returns null — not [] — when it has
-// never been stored, so the caller can tell "no columns" apart from "no value
-// yet" and never mistakes a missing row for a deliberately empty list.
-export function loadColumns() {
-  const row = db
-    .prepare('SELECT value FROM settings WHERE key = ?')
-    .get(COLUMNS_SETTING)
+// Generic access to the `settings` table. Returns null — not a default — when a
+// key has never been stored, so callers can tell "no value" apart from "the
+// value is empty" and never mistake a missing row for a deliberate choice.
+export function getSetting(key) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key)
   if (!row) return null
   try {
-    const parsed = JSON.parse(row.value)
-    return Array.isArray(parsed) ? parsed : null
+    return JSON.parse(row.value)
   } catch {
     return null
   }
 }
 
-export function saveColumns(columns) {
+export function setSetting(key, value) {
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
-    COLUMNS_SETTING,
-    JSON.stringify(Array.isArray(columns) ? columns : [])
+    key,
+    JSON.stringify(value)
   )
   return true
+}
+
+// The prioritization view's column list. Null when never stored (see above).
+export function loadColumns() {
+  const stored = getSetting(COLUMNS_SETTING)
+  return Array.isArray(stored) ? stored : null
+}
+
+export function saveColumns(columns) {
+  return setSetting(COLUMNS_SETTING, Array.isArray(columns) ? columns : [])
+}
+
+// Durable, TTL-aware key/value storage for plugins. Plugins use it to remember
+// the results of expensive lookups (a JIRA issue check, say) across restarts;
+// keeping it here rather than in a plugin-owned file means it is as durable as
+// the tasks and rides along in the daily backup for free.
+export function cacheGet(plugin, key, now = Date.now()) {
+  const row = db
+    .prepare('SELECT value, storedAt, expiresAt FROM plugin_cache WHERE plugin = ? AND key = ?')
+    .get(plugin, key)
+  if (!row) return null
+  let value
+  try {
+    value = JSON.parse(row.value)
+  } catch {
+    return null
+  }
+  // Expired entries are returned, flagged — that lets a caller serve a stale
+  // value instantly and re-validate in the background instead of blocking.
+  return {
+    value,
+    storedAt: row.storedAt,
+    expiresAt: row.expiresAt ?? null,
+    expired: row.expiresAt != null && row.expiresAt <= now
+  }
+}
+
+export function cacheSet(plugin, key, value, ttlMs = null, now = Date.now()) {
+  db.prepare(
+    `INSERT OR REPLACE INTO plugin_cache (plugin, key, value, storedAt, expiresAt)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(plugin, key, JSON.stringify(value), now, ttlMs == null ? null : now + ttlMs)
+  return true
+}
+
+export function cacheDelete(plugin, key) {
+  db.prepare('DELETE FROM plugin_cache WHERE plugin = ? AND key = ?').run(plugin, key)
+  return true
+}
+
+export function cacheClear(plugin) {
+  db.prepare('DELETE FROM plugin_cache WHERE plugin = ?').run(plugin)
+  return true
+}
+
+// Drop entries past their expiry so the table can't grow without bound.
+export function prunePluginCache(now = Date.now()) {
+  db.prepare('DELETE FROM plugin_cache WHERE expiresAt IS NOT NULL AND expiresAt <= ?').run(now)
 }
 
 // One-time import of a legacy tasks.json file, if present and the DB is empty.
@@ -193,6 +248,17 @@ export function initStore() {
      )`
   )
 
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS plugin_cache (
+       plugin TEXT NOT NULL,
+       key TEXT NOT NULL,
+       value TEXT NOT NULL,
+       storedAt INTEGER NOT NULL,
+       expiresAt INTEGER,
+       PRIMARY KEY (plugin, key)
+     )`
+  )
+
   // Bring databases created by earlier versions up to the current shape.
   const cols = db.prepare('PRAGMA table_info(tasks)').all()
   for (const [name, decl] of ADDED_COLUMNS) {
@@ -202,6 +268,7 @@ export function initStore() {
   }
 
   migrateFromJson()
+  prunePluginCache()
   maybeDailyBackup()
   // Also cover long-running sessions that cross midnight.
   setInterval(maybeDailyBackup, DAY_MS)

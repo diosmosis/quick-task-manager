@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import TaskInput from './TaskInput.jsx'
+import RichText from './RichText.jsx'
 import {
   RECURRENCE_UNITS,
   describeRecurrence,
@@ -198,7 +199,11 @@ export default function TaskItem({
           title="Click to edit"
           onClick={() => setEditing(true)}
         >
-          <span className="task-desc">{task.description || '(no description)'}</span>
+          <RichText
+            className="task-desc"
+            text={task.description}
+            fallback="(no description)"
+          />
           {task.tags.length > 0 && (
             <span className="task-tags">
               {task.tags.map((tag) => {
@@ -283,7 +288,7 @@ export default function TaskItem({
                   🎯
                 </span>
               )}
-              <span className="subtask-desc">{s.description}</span>
+              <RichText className="subtask-desc" text={s.description} />
             </li>
           ))}
         </ul>

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import TaskItem from './TaskItem.jsx'
+import RichText from './RichText.jsx'
 import { allTags, tagColor, visibleInPriority } from '../utils/tasks.js'
 
 // A search box shown at the top of a column (outside the scroll area). It finds
@@ -117,9 +118,11 @@ export default function PriorityView({
         {focusTask ? (
           <div className="focus-content">
             <div className="focus-task">
-              <span className="focus-desc">
-                {focusTask.description || '(no description)'}
-              </span>
+              <RichText
+                className="focus-desc"
+                text={focusTask.description}
+                fallback="(no description)"
+              />
               {focusTask.tags.length > 0 && (
                 <span className="focus-tags">
                   {focusTask.tags.map((t) => {
