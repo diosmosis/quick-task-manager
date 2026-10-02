@@ -3,12 +3,36 @@ import TaskInput from './TaskInput.jsx'
 import TaskItem from './TaskItem.jsx'
 import { allStatuses, allTags } from '../utils/tasks.js'
 
+// An SVG rather than an emoji, like the notes icon in TaskItem — see change #10.
+function TrashIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 7h16" />
+      <path d="M9 7V4.5h6V7" />
+      <path d="M6.5 7l1 13h9l1-13" />
+      <line x1="10" y1="11" x2="10" y2="16.5" />
+      <line x1="14" y1="11" x2="14" y2="16.5" />
+    </svg>
+  )
+}
+
 // Shows all non-completed tasks with text/tag filtering and sorting.
 export default function InboxView({
   tasks,
   onAdd,
   onEdit,
   onTogglePriority,
+  onDelete,
   onAddSubtask,
   onRemoveSubtask,
   onSetRecurrence,
@@ -57,6 +81,13 @@ export default function InboxView({
     }
     return sorted
   }, [tasks, textFilter, tagFilter, sortBy])
+
+  function handleDelete(task) {
+    const ok = window.confirm(
+      `Delete "${task.description || 'this task'}"? This cannot be undone.`
+    )
+    if (ok) onDelete(task.id)
+  }
 
   return (
     <div className="view inbox-view">
@@ -115,6 +146,13 @@ export default function InboxView({
                     title: task.prioritized ? 'Remove priority' : 'Prioritize',
                     active: task.prioritized,
                     onClick: () => onTogglePriority(task.id)
+                  },
+                  {
+                    key: 'delete',
+                    icon: <TrashIcon />,
+                    title: 'Delete task',
+                    className: 'delete-btn',
+                    onClick: () => handleDelete(task)
                   }
                 ]}
               />

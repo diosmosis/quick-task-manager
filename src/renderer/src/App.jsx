@@ -239,6 +239,15 @@ export default function App() {
     })
   }, [])
 
+  // Permanently removes a task. Confirmation is the caller's job (the Inbox
+  // asks first). The focus zone and notes sheet resolve through `tasks`, so a
+  // deleted task drops out of both without extra bookkeeping.
+  const deleteTask = useCallback((id) => {
+    const task = tasksRef.current.find((t) => t.id === id)
+    setTasks((prev) => prev.filter((t) => t.id !== id))
+    if (task) window.api.emitPluginEvent('task:deleted', { task })
+  }, [])
+
   // Enable/disable recurrence on an existing task. Enabling makes the task due
   // immediately (so it is picked up as due right away); disabling clears the
   // schedule but leaves the task itself untouched.
@@ -443,6 +452,7 @@ export default function App() {
             onAdd={addTask}
             onEdit={editTask}
             onTogglePriority={togglePriority}
+            onDelete={deleteTask}
             onAddSubtask={addSubtask}
             onRemoveSubtask={removeSubtask}
             onSetRecurrence={setRecurrence}

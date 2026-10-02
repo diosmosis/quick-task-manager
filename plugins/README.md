@@ -69,6 +69,7 @@ break the app.
 | `task:prioritized` | event | `{ task }` |
 | `task:completed` | event | `{ task }` |
 | `task:uncompleted` | event | `{ task }` |
+| `task:deleted` | event | `{ task }`, the task as it was before deletion |
 
 ### `text:decorate`
 

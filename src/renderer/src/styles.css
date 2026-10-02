@@ -640,6 +640,12 @@ select:disabled {
   color: var(--star);
 }
 
+/* Dim like every other action until hovered, so the destructive one doesn't
+   shout from every card in the Inbox. */
+.icon-btn.delete-btn:hover {
+  color: var(--danger);
+}
+
 /* "Working on" focus zone */
 .focus-zone {
   flex-shrink: 0;

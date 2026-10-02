@@ -347,7 +347,7 @@ export default function TaskItem({
           {actions.map((action) => (
             <button
               key={action.key}
-              className={`icon-btn${action.active ? ' active' : ''}`}
+              className={`icon-btn${action.active ? ' active' : ''}${action.className ? ` ${action.className}` : ''}`}
               title={action.title}
               aria-label={action.title}
               onClick={(e) => {
