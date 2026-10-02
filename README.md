@@ -17,7 +17,12 @@ An Electron + React desktop app for managing a todo list: create tasks with inli
   the task leaves the Prioritize view.
 - **Archive view** — completed tasks live here for 14 days, then are removed
   permanently.
-- **Editing** — click any task in any view to edit its description and tags inline.
+- **Editing** — click a task in any view to edit its description and tags inline, or
+  pick **Edit task…** from the ⋮ menu on the card (which is the reliable way in when
+  a long description leaves nothing free to click).
+- **Status** — a free-form progress label ("in progress", "blocked", …), set in the
+  task editor and shown on the card as a color-coded chip, from the same palette as
+  the tags. Statuses already in use are offered as completions.
 - The window starts maximized.
 
 ## Requirements
@@ -42,6 +47,18 @@ npm run dev
 npm run build
 npm run preview
 ```
+
+### Linux: add to the application menu
+
+```bash
+npm run build
+npm run install-desktop
+```
+
+This installs `assets/quick-task-manager.desktop` into
+`~/.local/share/applications`, with its `Exec`/`Icon` paths pointed at this
+checkout. The entry runs `launch.sh`, which starts the production build.
+Re-run it if you move the checkout.
 
 ### Linux note: chrome-sandbox
 

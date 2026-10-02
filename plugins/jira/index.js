@@ -5,6 +5,13 @@
 // token is used to check that each id is a real issue, so that text which
 // merely looks like a ticket id (COVID-19, UTF-8) is left alone.
 //
+// It also contributes a "Create JIRA ticket…" action to each task's ⋮ menu.
+// That action opens a form this plugin ships itself, in ui/create-issue.jsx,
+// which creates the issue through the REST API. Everything about creating an
+// issue — the fields, the project and issue-type lookups, the request — lives
+// in that file; all this one does for it is declare the action and name the
+// origin its form is allowed to reach.
+//
 // The decorate hook never waits on the network. It answers immediately from
 // what it already knows and starts a lookup in the background; when that
 // lookup lands, ctx.invalidate() asks the app to re-decorate the affected
@@ -161,11 +168,44 @@ function decorate(segments, ctx) {
   return out
 }
 
+// --- create a ticket from a task --------------------------------------------
+
+// Offered whenever the plugin has a base URL — the same condition under which
+// it does anything at all. Without credentials the form has no way to reach the
+// API, so the row is shown disabled and says why rather than disappearing,
+// which would look like the feature is missing rather than unconfigured.
+function taskActions(_payload, ctx) {
+  const config = ctx.config || {}
+  if (!siteOf(config)) return []
+  const authorized = Boolean(authHeader(config))
+  return [
+    {
+      id: 'create-issue',
+      label: 'Create JIRA ticket…',
+      title: authorized
+        ? 'Create a new JIRA issue from this task'
+        : 'Add your account email and API token in plugin settings first',
+      disabled: !authorized,
+      // Renders ui/create-issue.jsx instead of running immediately.
+      form: true
+    }
+  ]
+}
+
+// Where this plugin's form is allowed to send requests. The host asks before
+// every request its UI makes and permits nothing else, so this is the whole of
+// the form's reach — and it is derived from the base URL the user configured,
+// not from anything the form itself supplies.
+function uiOrigins(_payload, ctx) {
+  const site = siteOf(ctx.config || {})
+  return site ? [site.origin] : []
+}
+
 module.exports = {
   name: 'jira',
   title: 'JIRA integration',
   description:
-    'Turns JIRA ticket ids in task and subtask descriptions into links that open in your browser. Ids are checked against the JIRA API so text that merely looks like a ticket id is left alone.',
+    'Turns JIRA ticket ids in task and subtask descriptions into links that open in your browser, and adds a "Create JIRA ticket" action to each task menu that creates the issue and writes its key back onto the task. Ids are checked against the JIRA API so text that merely looks like a ticket id is left alone.',
   config: [
     {
       key: 'baseUrl',
@@ -186,9 +226,28 @@ module.exports = {
       label: 'API token',
       type: 'password',
       help: 'Created under Atlassian account settings → Security → API tokens. Without an email and token, ids are linked without being checked.'
+    },
+    {
+      key: 'projectKey',
+      label: 'Default project for new tickets',
+      type: 'text',
+      placeholder: 'MWP',
+      help: 'Pre-selected in the "Create JIRA ticket" form. Optional — the form lists every project you can create in, and remembers nothing you do not set here.'
+    },
+    {
+      key: 'defaultIssueType',
+      label: 'Default issue type for new tickets',
+      type: 'text',
+      placeholder: 'Task',
+      // Not a select: issue types are defined per project and per instance, so
+      // there is no list to offer here — the plugin's config schema is static
+      // and read before anything has talked to JIRA.
+      help: 'Matched by name against the types the chosen project offers, ignoring case. Optional, and ignored for a project that has no type by that name — the form then picks that project\'s first.'
     }
   ],
   hooks: {
-    'text:decorate': decorate
+    'text:decorate': decorate,
+    'task:actions': taskActions,
+    'ui:origins': uiOrigins
   }
 }

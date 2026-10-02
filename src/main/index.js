@@ -7,6 +7,9 @@ import {
   listPlugins,
   openExternal,
   reloadPlugins,
+  runPluginFetch,
+  runTaskAction,
+  runTaskActions,
   runTextDecorate,
   safeExternalUrl,
   setPluginConfig,
@@ -27,6 +30,10 @@ function createWindow() {
   const win = new BrowserWindow({
     show: false,
     autoHideMenuBar: true,
+    // Linux window managers take the taskbar/panel icon from the window itself
+    // (_NET_WM_ICON), not the .desktop entry. nativeImage can't read SVG, hence
+    // a PNG rendering of assets/icon.svg.
+    icon: join(__dirname, '../../assets/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -122,6 +129,17 @@ if (!app.requestSingleInstanceLock()) {
     // full task list costs one round trip rather than one per task.
     ipcMain.handle('plugins:decorate', (_event, texts) => runTextDecorate(texts))
     ipcMain.on('plugins:event', (_event, name, payload) => emitEvent(name, payload))
+    // Asked when a task's ⋮ menu is opened, rather than for every visible card.
+    ipcMain.handle('plugins:task-actions', (_event, task) => runTaskActions(task))
+    ipcMain.handle('plugins:run-task-action', (_event, name, actionId, task) =>
+      runTaskAction(name, actionId, task)
+    )
+    // Lets a plugin's own form reach its own service. The renderer cannot make
+    // the request itself — the CSP forbids it and CORS would refuse it — and
+    // the plugin host restricts each caller to the origins that plugin names.
+    ipcMain.handle('plugins:fetch', (_event, name, url, init) =>
+      runPluginFetch(name, url, init)
+    )
 
     ipcMain.handle('shell:open-external', (_event, url) => openExternal(url))
 

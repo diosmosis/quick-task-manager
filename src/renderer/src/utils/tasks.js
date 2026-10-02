@@ -47,7 +47,16 @@ export function createTask(text) {
     recurrence: null, // { every: number, unit: 'day' | 'week' | 'month' }
     dueAt: null,
     autoPrioritizedFor: null,
-    spawnedFrom: null
+    spawnedFrom: null,
+    // Free-form text, written through the notes sheet. Like recurrence and
+    // subtasks it is only ever set on an existing task — the creation input is
+    // a single line and has no room for it.
+    notes: '',
+    // Free-form progress label ("in progress", "blocked", …). Like a tag in
+    // that it is short, repeated across tasks and color-coded from its own
+    // text; unlike a tag in that a task has at most one and it says how far
+    // along the work is rather than what the work is about.
+    status: ''
   }
 }
 
@@ -71,6 +80,7 @@ export function findFocusTarget(tasks, id) {
       id: task.id,
       description: task.description,
       tags: task.tags,
+      status: task.status || '',
       isSubtask: false
     }
   }
@@ -81,6 +91,9 @@ export function findFocusTarget(tasks, id) {
         id: sub.id,
         description: sub.description,
         tags: [],
+        // Subtasks carry no status of their own; the parent's would be about
+        // the whole task, not about this line of it.
+        status: '',
         isSubtask: true,
         parentDescription: t.description
       }
@@ -196,6 +209,10 @@ export function createRecurrenceCopy(task, now) {
     completedAt: null,
     autoPrioritizedFor: null,
     spawnedFrom: task.id,
+    // Notes carry over (they are the task's standing instructions) but the
+    // status does not: it describes how far *this* occurrence got, and a fresh
+    // occurrence has not been started.
+    status: '',
     dueAt: nextDueDate(task.dueAt ?? now, task.recurrence, now),
     subtasks: (task.subtasks || []).map((s) => ({
       ...s,
@@ -212,6 +229,18 @@ export function allTags(tasks) {
     for (const tag of t.tags) set.add(tag)
   }
   return [...set].sort()
+}
+
+// Collect the distinct statuses in use across the given tasks (sorted). Offered
+// as suggestions while editing: a status is only worth color-coding if the same
+// wording comes back, and typing "in progres" once defeats that.
+export function allStatuses(tasks) {
+  const seen = new Map() // lowercased -> first spelling encountered
+  for (const t of tasks) {
+    const status = (t.status || '').trim()
+    if (status && !seen.has(status.toLowerCase())) seen.set(status.toLowerCase(), status)
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b))
 }
 
 // Whether a completed task should still be shown in the prioritization view
@@ -242,6 +271,14 @@ export function tagColor(tag) {
     fg: `hsl(${hue}, 75%, 82%)`,
     border: `hsl(${hue}, 45%, 42%)`
   }
+}
+
+// Statuses are color-coded the same way tags are, from the same hash, so the
+// palette is one palette. Normalized first: a status is typed by hand, so
+// "In Progress" and "in progress" are the same status and must not land on two
+// different colors.
+export function statusColor(status) {
+  return tagColor(String(status || '').trim().toLowerCase())
 }
 
 export function formatDate(ms) {

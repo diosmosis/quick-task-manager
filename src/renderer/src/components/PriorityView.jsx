@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import TaskItem from './TaskItem.jsx'
 import RichText from './RichText.jsx'
-import { allTags, tagColor, visibleInPriority } from '../utils/tasks.js'
+import StatusChip from './StatusChip.jsx'
+import { allStatuses, allTags, tagColor, visibleInPriority } from '../utils/tasks.js'
 
 // A search box shown at the top of a column (outside the scroll area). It finds
 // tasks with the column's tag that are not yet prioritized (and not completed).
@@ -69,9 +70,12 @@ export default function PriorityView({
   onAddSubtask,
   onRemoveSubtask,
   onToggleSubtask,
-  onSetRecurrence
+  onSetRecurrence,
+  onSetStatus,
+  onOpenNotes
 }) {
   const tags = useMemo(() => allTags(tasks), [tasks])
+  const statuses = useMemo(() => allStatuses(tasks), [tasks])
   const availableToAdd = tags.filter((t) => !columns.includes(t))
   const [dragTag, setDragTag] = useState(null)
   const [dragOverTag, setDragOverTag] = useState(null)
@@ -123,6 +127,10 @@ export default function PriorityView({
                 text={focusTask.description}
                 fallback="(no description)"
               />
+              {/* How far along the thing you're working on is — the one card
+                  where that is worth having in front of you. Empty for a
+                  focused subtask, which has no status of its own. */}
+              <StatusChip status={focusTask.status} />
               {focusTask.tags.length > 0 && (
                 <span className="focus-tags">
                   {focusTask.tags.map((t) => {
@@ -266,6 +274,9 @@ export default function PriorityView({
                           onRemoveSubtask={(subId) => onRemoveSubtask(task.id, subId)}
                           onToggleSubtask={(subId) => onToggleSubtask(task.id, subId)}
                           onSetRecurrence={(rec) => onSetRecurrence(task.id, rec)}
+                          onSetStatus={(status) => onSetStatus(task.id, status)}
+                          knownStatuses={statuses}
+                          onOpenNotes={onOpenNotes}
                           actions={[
                             {
                               key: 'complete',

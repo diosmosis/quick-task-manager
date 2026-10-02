@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import TaskItem from './TaskItem.jsx'
-import { ARCHIVE_TTL_MS, formatDate } from '../utils/tasks.js'
+import { ARCHIVE_TTL_MS, allStatuses, formatDate } from '../utils/tasks.js'
 
 // Shows completed tasks. They remain here for 14 days before being purged.
 export default function ArchiveView({
@@ -9,8 +9,11 @@ export default function ArchiveView({
   onEdit,
   onToggleComplete,
   onAddSubtask,
-  onRemoveSubtask
+  onRemoveSubtask,
+  onSetStatus,
+  onOpenNotes
 }) {
+  const statuses = useMemo(() => allStatuses(tasks), [tasks])
   const completed = useMemo(
     () =>
       tasks
@@ -37,6 +40,9 @@ export default function ArchiveView({
                 onEdit={(text) => onEdit(task.id, text)}
                 onAddSubtask={(text) => onAddSubtask(task.id, text)}
                 onRemoveSubtask={(subId) => onRemoveSubtask(task.id, subId)}
+                onSetStatus={(status) => onSetStatus(task.id, status)}
+                knownStatuses={statuses}
+                onOpenNotes={onOpenNotes}
                 actions={[
                   {
                     key: 'restore',

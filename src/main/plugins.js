@@ -7,13 +7,17 @@
 // with `require()` and unrestricted network access; the renderer talks to it
 // over IPC.
 //
-// The API is entirely hooks. Two kinds:
+// The API is entirely hooks. Three kinds:
 //
-//   * filters — chained. Each enabled plugin receives the previous value and
+//   * filters   — chained. Each enabled plugin receives the previous value and
 //     returns a new one. `text:decorate` is the filter that lets a plugin
 //     change how task text is rendered.
-//   * events  — fire-and-forget notifications posted by the core. The return
+//   * events    — fire-and-forget notifications posted by the core. The return
 //     value is ignored.
+//   * providers — each enabled plugin is asked independently and the answers
+//     are concatenated. `task:actions` is how a plugin contributes operations
+//     to a task's ⋮ menu. Deliberately not a filter: a menu is not something
+//     one plugin should be able to edit on another's behalf.
 //
 // See plugins/README.md for the plugin-author-facing documentation.
 import { app, net, shell } from 'electron'
@@ -159,6 +163,10 @@ function makeContext(name, values) {
     // machine behind a corporate proxy.
     fetch: (input, init) => net.fetch(input, init),
     log: (...args) => console.log(`[plugin:${name}]`, ...args),
+    // The sanctioned way for a plugin to reach the system browser. It goes
+    // through the same validation as every href a decorator produces, so a
+    // plugin cannot get `file://` or a custom scheme as far as xdg-open.
+    openExternal: (url) => openExternal(url),
     // Tells the renderer that decorations of these texts are out of date, so a
     // hook can answer instantly from cache and refine later.
     invalidate: (texts) => {
@@ -361,4 +369,209 @@ export async function runTextDecorate(texts) {
   )
 
   return { epoch, results }
+}
+
+// A plugin may contribute at most this many actions to one task's menu. Not a
+// policy so much as a backstop: the menu is a fixed overlay, and a plugin
+// returning thousands of rows would paint over the whole window.
+const MAX_ACTIONS_PER_PLUGIN = 20
+const MAX_LABEL_LENGTH = 120
+
+// Keeps only what a menu row is allowed to be. A plugin's return value reaches
+// the renderer and is rendered, so — as with decoration segments — it is
+// normalised here rather than trusted.
+function validActions(list, pluginName) {
+  if (!Array.isArray(list)) return []
+  const out = []
+  for (const item of list) {
+    // Bound the *valid* output rather than the input, so a plugin's usable
+    // actions aren't crowded out by its malformed ones; stopping here also
+    // bounds the work when the array is enormous.
+    if (out.length >= MAX_ACTIONS_PER_PLUGIN) break
+    if (!item || typeof item.id !== 'string' || !item.id) continue
+    if (typeof item.label !== 'string' || !item.label) continue
+    out.push({
+      plugin: pluginName,
+      id: item.id,
+      label: item.label.slice(0, MAX_LABEL_LENGTH),
+      title: typeof item.title === 'string' ? item.title.slice(0, MAX_LABEL_LENGTH) : undefined,
+      disabled: item.disabled === true,
+      // Picking this one opens the plugin's own form instead of running it
+      // straight away. The component is looked up by plugin name and action id
+      // in the renderer's bundled registry; the lookup, not this flag, decides
+      // what actually renders, so a plugin claiming a form it does not ship
+      // gets nothing rather than a broken dialog.
+      form: item.form === true
+    })
+  }
+  return out
+}
+
+// Collects the `task:actions` provider hook across enabled plugins. Runs when
+// the user opens a task's menu, so a hook is still expected to answer from what
+// it already knows rather than going to the network.
+export async function runTaskActions(task) {
+  const providers = active().filter((p) => typeof p.hooks['task:actions'] === 'function')
+  const actions = []
+
+  for (const plugin of providers) {
+    try {
+      const list = await plugin.hooks['task:actions']({ task }, plugin.ctx)
+      actions.push(...validActions(list, plugin.name))
+    } catch (err) {
+      // One plugin's bad hook must not empty another's menu entries.
+      console.error(`Plugin ${plugin.name} hook task:actions failed:`, err)
+    }
+  }
+
+  return { epoch, actions }
+}
+
+// Invokes the action the user picked. Unlike `text:decorate`, this one is
+// allowed to await the network — it runs on a click, not while the app is
+// waiting to paint — so the renderer shows it as pending until it resolves.
+export async function runTaskAction(pluginName, actionId, task) {
+  const plugin = plugins.find((p) => p.name === pluginName)
+  if (!plugin || plugin.error || !plugin.enabled) {
+    return { ok: false, message: 'That plugin is no longer available.' }
+  }
+  const hook = plugin.hooks['task:action']
+  if (typeof hook !== 'function') {
+    return { ok: false, message: 'That plugin does not handle actions.' }
+  }
+  try {
+    const result = await hook({ task, actionId }, plugin.ctx)
+    // A hook that returns nothing succeeded; only an explicit failure fails.
+    if (result && result.ok === false) {
+      return { ok: false, message: String(result.message || 'The action failed.') }
+    }
+    return { ok: true }
+  } catch (err) {
+    console.error(`Plugin ${plugin.name} hook task:action failed:`, err)
+    return { ok: false, message: String((err && err.message) || err) }
+  }
+}
+
+// --- network for plugin UI ---------------------------------------------------
+
+// A plugin's form runs in the renderer, where the CSP (`default-src 'self'`)
+// forbids reaching anything but the app itself, and where a cross-origin call
+// to a service like JIRA would be refused by CORS even if it did not. So the
+// request is made here instead and the result handed back as plain data.
+//
+// That makes this the one place in the app where the renderer can cause an
+// arbitrary outbound request, so it is deliberately narrow: a plugin only
+// reaches origins it names through `ui:origins`, and a plugin that registers no
+// such hook gets no network from its UI at all. The allowlist is asked for on
+// every call rather than cached, so revoking it is a matter of changing the
+// plugin's configuration.
+const MAX_FETCH_BODY = 2 * 1024 * 1024
+const MAX_REQUEST_BODY = 256 * 1024
+const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'])
+// A form's request cannot carry its own AbortSignal: it is dropped in transit
+// rather than refused, so a caller-supplied timeout would silently never fire.
+// The timeout is applied here instead, on behalf of every plugin.
+const UI_FETCH_TIMEOUT_MS = 20000
+
+async function allowedOrigins(plugin) {
+  const hook = plugin.hooks['ui:origins']
+  if (typeof hook !== 'function') return []
+  const list = await hook({}, plugin.ctx)
+  if (!Array.isArray(list)) return []
+  const out = []
+  for (const entry of list) {
+    // Run each through the same parser as every other plugin-supplied URL, so
+    // an origin can only ever be http(s) — no `file:`, no custom scheme.
+    const url = safeExternalUrl(entry)
+    if (url) out.push(new URL(url).origin)
+  }
+  return out
+}
+
+// Only the parts of RequestInit that make sense across the boundary, and only
+// in shapes that survive structured clone. Anything else is dropped rather than
+// forwarded, so a plugin cannot reach for redirect/credentials behaviour the
+// host has not thought about.
+function validInit(init) {
+  const source = init && typeof init === 'object' ? init : {}
+  const method = String(source.method || 'GET').toUpperCase()
+  if (!ALLOWED_METHODS.has(method)) return null
+
+  const headers = {}
+  if (source.headers && typeof source.headers === 'object') {
+    for (const [key, value] of Object.entries(source.headers)) {
+      if (typeof key === 'string' && typeof value === 'string') headers[key] = value
+    }
+  }
+
+  // These requests go through Chromium's network stack, which otherwise fills
+  // in a full Chrome User-Agent. That makes a plugin's API call look like a
+  // browser session, and services defend against browsers doing exactly this:
+  // JIRA's XSRF filter rejects an authenticated POST that appears to come from
+  // one, with a 403 that has nothing to do with the caller's permissions. Say
+  // what we actually are. A plugin that needs a different identity — an API
+  // that allowlists user agents, say — can still set its own.
+  if (!Object.keys(headers).some((key) => key.toLowerCase() === 'user-agent')) {
+    headers['User-Agent'] = `quick-task-manager/${app.getVersion()}`
+  }
+
+  const out = { method, headers, signal: AbortSignal.timeout(UI_FETCH_TIMEOUT_MS) }
+  if (typeof source.body === 'string') {
+    if (source.body.length > MAX_REQUEST_BODY) return null
+    out.body = source.body
+  }
+  return out
+}
+
+// Performs one request on behalf of a plugin's UI. Returns a description of the
+// response rather than a Response — the renderer rebuilds a real one — and
+// reports failure as data so a form can show it instead of crashing.
+export async function runPluginFetch(pluginName, rawUrl, init) {
+  const plugin = plugins.find((p) => p.name === pluginName)
+  if (!plugin || plugin.error || !plugin.enabled) {
+    return { ok: false, message: 'That plugin is no longer available.' }
+  }
+
+  const url = safeExternalUrl(rawUrl)
+  if (!url) return { ok: false, message: 'That address is not one the app will request.' }
+
+  let origins
+  try {
+    origins = await allowedOrigins(plugin)
+  } catch (err) {
+    console.error(`Plugin ${plugin.name} hook ui:origins failed:`, err)
+    return { ok: false, message: 'The plugin could not say which addresses it may reach.' }
+  }
+  if (!origins.includes(new URL(url).origin)) {
+    return { ok: false, message: `${plugin.name} is not configured to reach ${new URL(url).origin}.` }
+  }
+
+  const options = validInit(init)
+  if (!options) return { ok: false, message: 'That request is not one the app will make.' }
+
+  try {
+    const response = await net.fetch(url, options)
+    const body = await response.text()
+    if (body.length > MAX_FETCH_BODY) {
+      return {
+        ok: false,
+        message: `${options.method} ${url} answered with more than the app will read (${body.length} characters).`
+      }
+    }
+    return {
+      ok: true,
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers),
+      body
+    }
+  } catch (err) {
+    // Offline, DNS failure, TLS rejection, or the timeout above. Naming the
+    // request matters here more than anywhere else: nothing came back, so this
+    // message is all the form has to report.
+    return {
+      ok: false,
+      message: `${options.method} ${url} failed: ${String((err && err.message) || err)}`
+    }
+  }
 }

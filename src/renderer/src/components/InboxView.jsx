@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import TaskInput from './TaskInput.jsx'
 import TaskItem from './TaskItem.jsx'
-import { allTags } from '../utils/tasks.js'
+import { allStatuses, allTags } from '../utils/tasks.js'
 
 // Shows all non-completed tasks with text/tag filtering and sorting.
 export default function InboxView({
@@ -11,13 +11,18 @@ export default function InboxView({
   onTogglePriority,
   onAddSubtask,
   onRemoveSubtask,
-  onSetRecurrence
+  onSetRecurrence,
+  onSetStatus,
+  onOpenNotes
 }) {
   const [textFilter, setTextFilter] = useState('')
   const [tagFilter, setTagFilter] = useState('')
   const [sortBy, setSortBy] = useState('created-desc')
 
   const tags = useMemo(() => allTags(tasks), [tasks])
+  // Offered as completions in each card's status editor, so statuses converge
+  // on the same wording instead of fragmenting into near-duplicates.
+  const statuses = useMemo(() => allStatuses(tasks), [tasks])
 
   const visible = useMemo(() => {
     const text = textFilter.trim().toLowerCase()
@@ -100,6 +105,9 @@ export default function InboxView({
                 onAddSubtask={(text) => onAddSubtask(task.id, text)}
                 onRemoveSubtask={(subId) => onRemoveSubtask(task.id, subId)}
                 onSetRecurrence={(rec) => onSetRecurrence(task.id, rec)}
+                onSetStatus={(status) => onSetStatus(task.id, status)}
+                knownStatuses={statuses}
+                onOpenNotes={onOpenNotes}
                 actions={[
                   {
                     key: 'priority',

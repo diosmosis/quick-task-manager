@@ -18,7 +18,9 @@ const ADDED_COLUMNS = [
   ['recurrence', 'TEXT'],
   ['dueAt', 'INTEGER'],
   ['autoPrioritizedFor', 'INTEGER'],
-  ['spawnedFrom', 'TEXT']
+  ['spawnedFrom', 'TEXT'],
+  ['notes', "TEXT NOT NULL DEFAULT ''"],
+  ['status', "TEXT NOT NULL DEFAULT ''"]
 ]
 
 // Keys used in the `settings` table (small bits of UI state that must be as
@@ -48,7 +50,9 @@ function rowToTask(r) {
     recurrence: r.recurrence ? JSON.parse(r.recurrence) : null,
     dueAt: r.dueAt ?? null,
     autoPrioritizedFor: r.autoPrioritizedFor ?? null,
-    spawnedFrom: r.spawnedFrom ?? null
+    spawnedFrom: r.spawnedFrom ?? null,
+    notes: r.notes ?? '',
+    status: r.status ?? ''
   }
 }
 
@@ -60,10 +64,10 @@ export function saveTasks(tasks) {
     const insert = db.prepare(
       `INSERT INTO tasks
          (id, description, tags, createdAt, prioritized, completed, completedAt, subtasks,
-          recurrence, dueAt, autoPrioritizedFor, spawnedFrom)
+          recurrence, dueAt, autoPrioritizedFor, spawnedFrom, notes, status)
        VALUES
          (@id, @description, @tags, @createdAt, @prioritized, @completed, @completedAt, @subtasks,
-          @recurrence, @dueAt, @autoPrioritizedFor, @spawnedFrom)`
+          @recurrence, @dueAt, @autoPrioritizedFor, @spawnedFrom, @notes, @status)`
     )
     for (const t of list) {
       insert.run({
@@ -78,7 +82,9 @@ export function saveTasks(tasks) {
         recurrence: t.recurrence ? JSON.stringify(t.recurrence) : null,
         dueAt: t.dueAt ?? null,
         autoPrioritizedFor: t.autoPrioritizedFor ?? null,
-        spawnedFrom: t.spawnedFrom ?? null
+        spawnedFrom: t.spawnedFrom ?? null,
+        notes: t.notes ?? '',
+        status: t.status ?? ''
       })
     }
   })
@@ -232,7 +238,9 @@ export function initStore() {
        recurrence TEXT,
        dueAt INTEGER,
        autoPrioritizedFor INTEGER,
-       spawnedFrom TEXT
+       spawnedFrom TEXT,
+       notes TEXT NOT NULL DEFAULT '',
+       status TEXT NOT NULL DEFAULT ''
      )`
   )
 

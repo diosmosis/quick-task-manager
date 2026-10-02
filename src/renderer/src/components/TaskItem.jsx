@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import TaskInput from './TaskInput.jsx'
 import RichText from './RichText.jsx'
+import TaskMenu from './TaskMenu.jsx'
+import StatusChip from './StatusChip.jsx'
 import {
   RECURRENCE_UNITS,
   describeRecurrence,
@@ -9,6 +11,74 @@ import {
   taskToInput,
   tagColor
 } from '../utils/tasks.js'
+
+// The task's free-form status, edited alongside its description. Committed on
+// blur and on Enter rather than on every keystroke: the recurrence editor can
+// commit per change because it is a checkbox and a number, but a text field
+// would put a full store write behind every letter. Clearing the field clears
+// the status.
+//
+// `known` are the statuses already in use elsewhere, offered as completions —
+// color-coding only says anything if the same wording comes back.
+function StatusEditor({ task, known = [], onSetStatus }) {
+  const [value, setValue] = useState(task.status || '')
+  const listId = useId()
+
+  const commit = useCallback(
+    (text, current, set) => {
+      const next = text.replace(/\s+/g, ' ').trim()
+      if (next !== (current || '')) set(next)
+    },
+    []
+  )
+
+  // Leaving edit mode does not blur the field — the description input's Enter
+  // key and the Cancel button both unmount this editor from under it — so the
+  // draft is committed on the way out as well, or a status typed and then
+  // saved from the other input would be silently dropped. Read through a ref:
+  // the cleanup runs once, long after this render's closure went stale. The ref
+  // is written from an effect rather than during render so only renders that
+  // were actually committed reach it.
+  const latest = useRef({ value, status: task.status, onSetStatus })
+  useEffect(() => {
+    latest.current = { value, status: task.status, onSetStatus }
+  })
+  useEffect(
+    () => () => {
+      const { value: v, status, onSetStatus: set } = latest.current
+      commit(v, status, set)
+    },
+    [commit]
+  )
+
+  return (
+    <div className="status-editor">
+      <span className="subtask-editor-label">Status</span>
+      <input
+        type="text"
+        className="status-input"
+        value={value}
+        list={known.length > 0 ? listId : undefined}
+        placeholder="e.g. in progress, blocked, waiting on review…"
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => commit(value, task.status, onSetStatus)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit(value, task.status, onSetStatus)
+          }
+        }}
+      />
+      {known.length > 0 && (
+        <datalist id={listId}>
+          {known.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
+    </div>
+  )
+}
 
 // Inline editor for a task's subtasks, shown only while the parent task is being
 // edited. Subtasks are plain descriptions — they cannot be tagged or prioritized.
@@ -141,6 +211,9 @@ export default function TaskItem({
   onToggleSubtask,
   onSubtaskDragStart,
   onSetRecurrence,
+  onSetStatus,
+  knownStatuses = [],
+  onOpenNotes,
   focused = false,
   focusedSubtaskId = null
 }) {
@@ -166,6 +239,9 @@ export default function TaskItem({
           }}
           onCancel={() => setEditing(false)}
         />
+        {onSetStatus && (
+          <StatusEditor task={task} known={knownStatuses} onSetStatus={onSetStatus} />
+        )}
         {canEditSubtasks && (
           <SubtaskEditor
             subtasks={subtasks}
@@ -204,6 +280,9 @@ export default function TaskItem({
             text={task.description}
             fallback="(no description)"
           />
+          {/* Before the tags: the status is about this task's progress, so it
+              belongs next to what the task says, ahead of its categories. */}
+          <StatusChip status={task.status} />
           {task.tags.length > 0 && (
             <span className="task-tags">
               {task.tags.map((tag) => {
@@ -232,6 +311,39 @@ export default function TaskItem({
           {children && <div className="task-meta">{children}</div>}
         </div>
         <div className="task-actions">
+          {/* Rendered here rather than as another entry in each view's
+              `actions` array so the icon and the has-notes indicator are
+              defined once instead of in all three views. */}
+          {onOpenNotes && (
+            <button
+              className={`icon-btn notes-btn${task.notes ? ' has-notes' : ''}`}
+              title={task.notes ? 'Notes' : 'Add notes'}
+              aria-label={task.notes ? 'Notes' : 'Add notes'}
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenNotes(task.id)
+              }}
+            >
+              {/* An SVG rather than an emoji: change #10 records that the
+                  system font rendered the de-prioritize glyph badly enough to
+                  misread. Lines of text, shortest last, so it reads as a note
+                  and not as a menu. */}
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <line x1="4.5" y1="6.5" x2="19.5" y2="6.5" />
+                <line x1="4.5" y1="12" x2="19.5" y2="12" />
+                <line x1="4.5" y1="17.5" x2="13" y2="17.5" />
+              </svg>
+            </button>
+          )}
           {actions.map((action) => (
             <button
               key={action.key}
@@ -246,6 +358,11 @@ export default function TaskItem({
               {action.icon}
             </button>
           ))}
+          {/* Core and plugin-contributed operations, last in the row as an
+              overflow menu conventionally is. "Edit task" lives here because a
+              card whose description fills its width leaves almost nothing of
+              `.task-body` free to click. */}
+          <TaskMenu task={task} onEditRequest={() => setEditing(true)} />
         </div>
       </div>
 

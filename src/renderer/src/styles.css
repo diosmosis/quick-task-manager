@@ -156,6 +156,7 @@ body {
 input[type='text'],
 input[type='number'],
 input[type='password'],
+textarea,
 select {
   background: var(--bg-elev);
   color: var(--text);
@@ -166,14 +167,23 @@ select {
   outline: none;
 }
 
+/* A textarea does not inherit the page font the way an input does. */
+textarea {
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 input[type='text']:focus,
 input[type='number']:focus,
 input[type='password']:focus,
+textarea:focus,
 select:focus {
   border-color: var(--accent);
 }
 
 input:disabled,
+textarea:disabled,
 select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -336,6 +346,23 @@ select:disabled {
   border: 1px solid transparent;
 }
 
+/* A task's status. Colored from the same hash the tags use, so the two share
+   one palette, but squared and upper-cased rather than a `#pill` — a status
+   and a tag sit side by side on the same card and must not read as the same
+   kind of thing. */
+.status-chip {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  overflow-wrap: anywhere;
+}
+
 .task-meta {
   flex-basis: 100%;
   color: var(--text-dim);
@@ -414,6 +441,21 @@ select:disabled {
   /* Sit beside the first line of a description that wraps, not centred on it. */
   align-self: flex-start;
   margin-top: 3px;
+}
+
+/* Status editor (shown while editing a task, directly under the description) */
+.status-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 4px 2px;
+  min-width: 0;
+}
+
+.status-input {
+  /* A 300px Prioritize column is the tight case: shrink rather than overflow. */
+  min-width: 0;
+  width: 100%;
 }
 
 /* Recurrence editor (shown while editing a task) */
@@ -1023,4 +1065,420 @@ select:disabled {
 .empty.small {
   padding: 12px;
   font-size: 13px;
+}
+
+/* Notes sheet
+   ----------------------------------------------------------------------------
+   Free-form task notes, in a panel pinned to the bottom of the window rather
+   than on the card. A card is rendered in a 300px Prioritize column and in a
+   dense Inbox list, and both of those scrollers hard-clip their contents
+   (`.column` is overflow:hidden, `.column-body`/`.inbox-list` are overflow-y),
+   so an anchored popover would need to escape them; a fixed panel needs no
+   positioning at all and has room for real paragraphs.
+   Surface treatment matches `.search-results`, the app's only other overlay. */
+
+/* The notes button on a task card. Deliberately not `.icon-btn.active`, whose
+   gold already means "prioritized" / "completed" — this is a content marker. */
+.notes-btn.has-notes {
+  color: var(--accent);
+}
+
+.notes-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.notes-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  max-height: 45vh;
+  background: var(--bg-elev-2);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4);
+  animation: notes-sheet-in 160ms ease-out;
+}
+
+@keyframes notes-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notes-sheet {
+    animation: none;
+  }
+}
+
+.notes-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.notes-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  /* The description can be arbitrarily long; it must not push the ✕ off. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notes-title-task {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.notes-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 12px 14px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.notes-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  min-height: 120px;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.notes-input:focus {
+  border-color: var(--accent);
+}
+
+.notes-read {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.notes-read.editable {
+  cursor: text;
+}
+
+.notes-read.editable:hover,
+.notes-read.editable:focus-visible {
+  border-color: var(--border);
+}
+
+.notes-body {
+  display: block;
+  font-size: 14px;
+  line-height: 1.5;
+  /* RichText emits flat spans, so without pre-wrap the line breaks in a
+     free-form note collapse into one paragraph. */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* The "no notes yet" fallback, which RichText renders as ordinary text. */
+.notes-body.placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.notes-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.notes-hint {
+  opacity: 0.7;
+}
+
+/* Task ⋮ menu
+   ----------------------------------------------------------------------------
+   Plugin-contributed operations on a task card. Positioned `fixed` from the
+   button's rect: a card in the Prioritize view sits inside four nested clipping
+   boxes (`.column-body` → `.column` overflow:hidden → `.columns` →
+   `.priority-view`), and a fixed element escapes all of them. It is also
+   portalled to <body>, because a completed card's `opacity` makes the card a
+   stacking context that would otherwise trap the z-index below the next card.
+   Surface treatment matches `.search-results`, as the notes sheet does.
+   z-index sits between `.search-results` (10) and `.notes-scrim` (40), so an
+   open notes sheet always overlays the menu rather than the other way round. */
+
+.task-menu-btn.open {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+.task-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+}
+
+.task-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 200px;
+  /* A plugin picks its own labels; the menu must not be able to grow past the
+     window because one of them is long. */
+  max-width: min(320px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.task-menu-item {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.task-menu-item:hover:not(:disabled),
+.task-menu-item:focus-visible {
+  background: var(--accent-dim);
+  outline: none;
+}
+
+.task-menu-item:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+/* Divides the app's own entries from the plugin-contributed ones. */
+.task-menu-sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--border);
+}
+
+.task-menu-empty {
+  padding: 7px 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.task-menu-error {
+  padding: 7px 8px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+/* Plugin forms
+   ----------------------------------------------------------------------------
+   The surface a plugin's own form component is rendered on, opened from an
+   action in the ⋮ menu. Centred rather than a bottom sheet: this is modal work
+   with a commit step, unlike notes, which are edited alongside the list.
+   z-index 60/70 puts it above the notes sheet (40/50) — a form is opened
+   deliberately and holds unsaved input, so nothing else should cover it.
+   The header is fixed and the plugin's own content scrolls beneath it; the
+   plugin's button row sticks to the bottom of that scroller so a long field
+   cannot push the commit button out of reach. */
+
+.plugin-form-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.plugin-form {
+  position: fixed;
+  z-index: 70;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(80vh, 640px);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: plugin-form-in 140ms ease-out;
+}
+
+@keyframes plugin-form-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 8px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plugin-form {
+    animation: none;
+  }
+}
+
+.plugin-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.plugin-form-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-form-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.plugin-form-status {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 14px;
+}
+
+.plugin-form-error {
+  color: var(--danger);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.plugin-form-body > .plugin-form-error {
+  padding: 14px;
+}
+
+/* Vocabulary for a plugin's own fields, reusing the Plugins tab's `.plugin-
+   field` label stack so the two look like one app rather than two. */
+.plugin-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.plugin-form-fields .select-wrap {
+  display: flex;
+}
+
+/* Sticky rather than a sibling of the scrolling body: the buttons belong to the
+   plugin's component, which the host renders as one block, and a long
+   description must not push Create out of reach. */
+.plugin-form-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-elev-2);
+  border-top: 1px solid var(--border);
+}
+
+.plugin-form-actions .plugin-form-error {
+  margin-right: auto;
+  text-align: right;
+}
+
+/* Failure diagnostics inside a plugin form.
+   ----------------------------------------------------------------------------
+   Sits between the fields and the sticky button row, so it appears where the
+   user just clicked. The dump is selectable and scrolls in both directions
+   rather than wrapping, because it is meant to be read and copied verbatim. */
+
+.plugin-form-diagnostic {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.plugin-form-hint {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.plugin-form-diagnostic-bar {
+  display: flex;
+  gap: 6px;
+}
+
+.plugin-form-diagnostic-bar .btn-ghost {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.plugin-form-detail {
+  margin: 0;
+  padding: 10px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  user-select: text;
 }

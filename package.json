@@ -10,6 +10,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "install-desktop": "./install-desktop.sh",
     "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {

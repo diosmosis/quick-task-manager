@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import InboxView from './components/InboxView.jsx'
 import PriorityView from './components/PriorityView.jsx'
 import ArchiveView from './components/ArchiveView.jsx'
 import PluginsView from './components/PluginsView.jsx'
+import NotesSheet from './components/NotesSheet.jsx'
+import PluginFormHost from './components/PluginFormHost.jsx'
+import { closeForm, getTarget, subscribe as subscribeForm } from './utils/actionForm.js'
 import { collectTexts, invalidateAll, invalidateTexts, prime } from './utils/decorate.js'
+import { refresh as refreshTaskActions } from './utils/pluginActions.js'
 import {
   applyDueRecurring,
   createTask,
@@ -41,10 +45,18 @@ export default function App() {
   // The task the user is currently focused on. Intentionally in-memory only —
   // it must not persist beyond a single run.
   const [focusTaskId, setFocusTaskId] = useState(null)
+  // Which task's notes sheet is open, and whether it opened read-only. Which it
+  // is depends on the *view*, not on the task: a task completed in the
+  // Prioritize view lingers there for 15 minutes and stays editable, while the
+  // same task reached through the Archive does not.
+  const [notesTarget, setNotesTarget] = useState(null) // { id, readOnly } | null
   const loaded = useRef(false)
   const columnsLoaded = useRef(false)
   const tasksRef = useRef(tasks)
   const columnsRef = useRef(columns)
+  // A note that has been typed but not yet committed by the sheet's debounce.
+  // Held here so the close-time flush can include it — see the flush effect.
+  const notesDraftRef = useRef(null)
 
   // Load persisted tasks once on startup and purge anything past retention.
   useEffect(() => {
@@ -69,7 +81,13 @@ export default function App() {
   // Plugin state changed, or a plugin finished a background lookup — either
   // way some decorations are stale and every visible description re-resolves.
   useEffect(() => {
-    const offChanged = window.api.onPluginsChanged((epoch) => invalidateAll(epoch))
+    // Which plugins contribute task actions can change with the same event, so
+    // the ⋮ menu appears or disappears live rather than waiting for a reload.
+    refreshTaskActions()
+    const offChanged = window.api.onPluginsChanged((epoch) => {
+      invalidateAll(epoch)
+      refreshTaskActions()
+    })
     const offInvalidated = window.api.onDecorationInvalidated((texts) =>
       invalidateTexts(texts)
     )
@@ -119,7 +137,14 @@ export default function App() {
   // before quitting is never lost to an interrupted async write.
   useEffect(() => {
     const flush = () => {
-      if (loaded.current) window.api.saveTasksSync(tasksRef.current)
+      // Closing does not unmount the sheet, so a note still inside its debounce
+      // window has to be folded in here rather than committed through state —
+      // a setTasks now would never reach tasksRef before this write.
+      const draft = notesDraftRef.current
+      const list = draft
+        ? tasksRef.current.map((t) => (t.id === draft.id ? { ...t, notes: draft.notes } : t))
+        : tasksRef.current
+      if (loaded.current) window.api.saveTasksSync(list)
       if (columnsLoaded.current) window.api.saveColumnsSync(columnsRef.current)
     }
     window.addEventListener('beforeunload', flush)
@@ -237,6 +262,59 @@ export default function App() {
     })
   }, [])
 
+  // Free-form notes, written through the notes sheet. The sheet debounces, so
+  // this runs at most every few hundred milliseconds of typing; persistence is
+  // the same effect that saves every other task change.
+  const setNotes = useCallback(
+    (id, notes) => {
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, notes } : t)))
+      emitPlugin('task:updated', id, { notes })
+    },
+    [emitPlugin]
+  )
+
+  // A task's free-form status ("in progress", "blocked", …). Set from the
+  // editor, cleared by emptying the field. Like notes it is a field of the task
+  // rather than a re-parse of the input, so it does not go through `editTask`.
+  const setStatus = useCallback(
+    (id, status) => {
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)))
+      emitPlugin('task:updated', id, { status })
+    },
+    [emitPlugin]
+  )
+
+  // A plugin form reporting what it made of a task — the JIRA one hands back
+  // the key of the issue it created. Appended rather than merged into the
+  // editor's parse: `editTask` runs its input through `parseInput`, which is
+  // for text the user typed, and an id arriving from a plugin has no business
+  // being read for #tags. Appending twice is guarded against because a form can
+  // be opened again on a task that already carries its key.
+  const appendToDescription = useCallback(
+    (id, text) => {
+      const addition = String(text || '').replace(/\s+/g, ' ').trim()
+      if (!addition) return
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const current = t.description || ''
+          if (current.split(/\s+/).includes(addition)) return t
+          return { ...t, description: current ? `${current} ${addition}` : addition }
+        })
+      )
+      const task = tasksRef.current.find((t) => t.id === id)
+      if (task) {
+        const current = task.description || ''
+        if (!current.split(/\s+/).includes(addition)) {
+          emitPlugin('task:updated', id, {
+            description: current ? `${current} ${addition}` : addition
+          })
+        }
+      }
+    },
+    [emitPlugin]
+  )
+
   // Subtasks are added/removed while editing a task, never at creation time.
   const addSubtask = useCallback((taskId, text) => {
     const sub = createSubtask(text)
@@ -299,6 +377,36 @@ export default function App() {
   // null if it was removed / no longer present, which clears the zone.
   const focusTask = findFocusTarget(tasks, focusTaskId)
 
+  // Same idea for the notes sheet: resolving through `tasks` means a task that
+  // is purged or completed away closes the sheet instead of leaving it showing
+  // a task that no longer exists.
+  const notesTask = notesTarget ? tasks.find((t) => t.id === notesTarget.id) : null
+
+  const setNotesDraft = useCallback((draft) => {
+    notesDraftRef.current = draft
+  }, [])
+
+  const openNotes = useCallback((id) => setNotesTarget({ id, readOnly: false }), [])
+  const openNotesReadOnly = useCallback((id) => setNotesTarget({ id, readOnly: true }), [])
+  const closeNotes = useCallback(() => setNotesTarget(null), [])
+
+  // The plugin form a ⋮ menu asked for, if any. It arrives through a module
+  // store rather than a prop because the menu that requests it sits inside a
+  // card — see utils/actionForm.js.
+  const formTarget = useSyncExternalStore(subscribeForm, getTarget)
+
+  // What a form hands back when it finishes. Only the task text is the app's to
+  // change; anything else the plugin did, it did itself.
+  const finishForm = useCallback(
+    (result) => {
+      if (result && result.appendToDescription && formTarget) {
+        appendToDescription(formTarget.task.id, result.appendToDescription)
+      }
+      closeForm()
+    },
+    [appendToDescription, formTarget]
+  )
+
   return (
     <div className="app">
       <header className="app-header">
@@ -313,7 +421,14 @@ export default function App() {
             <button
               key={key}
               className={`tab${view === key ? ' active' : ''}`}
-              onClick={() => setView(key)}
+              onClick={() => {
+                // The sheet belongs to a task in the view being left, and it
+                // overlays whatever comes next — close it with the view. Same
+                // for a plugin form, which is modal over the same ground.
+                setNotesTarget(null)
+                closeForm()
+                setView(key)
+              }}
             >
               {label}
             </button>
@@ -331,6 +446,8 @@ export default function App() {
             onAddSubtask={addSubtask}
             onRemoveSubtask={removeSubtask}
             onSetRecurrence={setRecurrence}
+            onSetStatus={setStatus}
+            onOpenNotes={openNotes}
           />
         )}
         {view === 'priority' && (
@@ -351,6 +468,8 @@ export default function App() {
             onRemoveSubtask={removeSubtask}
             onToggleSubtask={toggleSubtask}
             onSetRecurrence={setRecurrence}
+            onSetStatus={setStatus}
+            onOpenNotes={openNotes}
           />
         )}
         {view === 'archive' && (
@@ -361,10 +480,36 @@ export default function App() {
             onToggleComplete={toggleComplete}
             onAddSubtask={addSubtask}
             onRemoveSubtask={removeSubtask}
+            onSetStatus={setStatus}
+            onOpenNotes={openNotesReadOnly}
           />
         )}
         {view === 'plugins' && <PluginsView />}
       </main>
+
+      {notesTask && (
+        // Keyed on the task so opening another task's notes while the sheet is
+        // already up re-seeds the draft, rather than carrying the previous
+        // task's text over.
+        <NotesSheet
+          key={notesTask.id}
+          task={notesTask}
+          readOnly={notesTarget.readOnly}
+          onChange={setNotes}
+          onDraft={setNotesDraft}
+          onClose={closeNotes}
+        />
+      )}
+
+      {formTarget && (
+        <PluginFormHost
+          key={`${formTarget.action.plugin}:${formTarget.action.id}:${formTarget.task.id}`}
+          task={formTarget.task}
+          action={formTarget.action}
+          onDone={finishForm}
+          onClose={closeForm}
+        />
+      )}
     </div>
   )
 }
