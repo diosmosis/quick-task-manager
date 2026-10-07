@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('api', {
   loadColumns: () => ipcRenderer.invoke('columns:load'),
   saveColumns: (columns) => ipcRenderer.invoke('columns:save', columns),
   saveColumnsSync: (columns) => ipcRenderer.sendSync('columns:save-sync', columns),
+  loadPriorityOrder: () => ipcRenderer.invoke('order:load'),
+  savePriorityOrder: (order) => ipcRenderer.invoke('order:save', order),
+  savePriorityOrderSync: (order) => ipcRenderer.sendSync('order:save-sync', order),
 
   listPlugins: () => ipcRenderer.invoke('plugins:list'),
   setPluginEnabled: (name, enabled) =>

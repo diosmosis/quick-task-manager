@@ -43,7 +43,9 @@ export function createTask(text) {
     completed: false,
     completedAt: null,
     subtasks: [],
-    // Recurrence is opt-in, and only ever set while editing an existing task.
+    // The due date and recurrence are opt-in, and only ever set while editing
+    // an existing task. A task can have a due date without recurring (a one-off
+    // deadline); a recurring task always has one (its next occurrence).
     recurrence: null, // { every: number, unit: 'day' | 'week' | 'month' }
     dueAt: null,
     autoPrioritizedFor: null,
@@ -103,17 +105,33 @@ export function findFocusTarget(tasks, id) {
 }
 
 // ---------------------------------------------------------------------------
-// Recurrence
+// Due dates and recurrence
 // ---------------------------------------------------------------------------
 
 function daysInMonth(year, month) {
   return new Date(year, month + 1, 0).getDate()
 }
 
-function startOfDay(ms) {
+export function startOfDay(ms) {
   const d = new Date(ms)
   d.setHours(0, 0, 0, 0)
   return d.getTime()
+}
+
+// Convert between a due timestamp and the `YYYY-MM-DD` value of a date input,
+// in local time. A picked date is stored as the start of that local day: a due
+// date is about which day, not which moment (see isDue).
+export function dueAtToDateInput(ms) {
+  if (ms == null) return ''
+  const d = new Date(ms)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+export function dateInputToDueAt(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '')
+  if (!m) return null
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime()
 }
 
 // Advance a timestamp by one recurrence interval, keeping the local time of day
@@ -154,10 +172,10 @@ export function nextDueDate(from, recurrence, now) {
 
 // A task is due for the whole of its due day, not just from its due time
 // onwards: something due at 6pm today is something you need to do today, and
-// waiting until 6pm to surface it is too late to be useful.
+// waiting until 6pm to surface it is too late to be useful. This applies to
+// one-off due dates and recurring occurrences alike.
 export function isDue(task, now) {
   return (
-    !!task.recurrence &&
     !task.completed &&
     task.dueAt != null &&
     startOfDay(task.dueAt) <= startOfDay(now)
@@ -171,10 +189,12 @@ export function describeRecurrence(recurrence) {
 }
 
 // Short, human-readable "when is this due" label for a task chip.
+// Compared by day, like isDue: a picked date is stored as the start of its day,
+// which would otherwise read as "overdue" from the first minute of that day.
 export function formatDueRelative(dueAt, now) {
-  if (dueAt <= now) return 'due now'
   const days = Math.round((startOfDay(dueAt) - startOfDay(now)) / DAY_MS)
-  if (days <= 0) return 'due today'
+  if (days < 0) return days === -1 ? 'overdue by 1 day' : `overdue by ${-days} days`
+  if (days === 0) return 'due today'
   if (days === 1) return 'due tomorrow'
   if (days < 7) return `due in ${days} days`
   return `due ${new Date(dueAt).toLocaleDateString(undefined, {
@@ -183,11 +203,11 @@ export function formatDueRelative(dueAt, now) {
   })}`
 }
 
-// Auto-prioritize recurring tasks that have come due. Each occurrence is
+// Auto-prioritize tasks that have come due, recurring or not. Each due date is
 // auto-prioritized at most once (tracked by `autoPrioritizedFor`), so a user who
 // deliberately de-prioritizes a due task isn't fighting the timer — it comes
-// back at the next occurrence instead.
-export function applyDueRecurring(tasks, now) {
+// back at the next occurrence (or if the due date is changed) instead.
+export function applyDueTasks(tasks, now) {
   let changed = false
   const next = tasks.map((t) => {
     if (!isDue(t, now) || t.autoPrioritizedFor === t.dueAt) return t
@@ -248,6 +268,44 @@ export function allStatuses(tasks) {
 export function visibleInPriority(task, now) {
   if (!task.completed) return true
   return now - task.completedAt < PRIORITY_HIDE_MS
+}
+
+// Order a column's tasks by the user's hand-arranged list of ids. Tasks that
+// were never placed (newly prioritized, or every task before the column was
+// first rearranged) follow the placed ones, in their existing relative order —
+// the sort is stable.
+export function sortByPriorityOrder(tasks, order) {
+  if (!order || order.length === 0) return tasks
+  const rank = new Map(order.map((id, i) => [id, i]))
+  const unplaced = order.length
+  return [...tasks].sort(
+    (a, b) => (rank.get(a.id) ?? unplaced) - (rank.get(b.id) ?? unplaced)
+  )
+}
+
+// Move `id` within `ids` to sit before or after `targetId`.
+export function moveId(ids, id, targetId, position) {
+  const next = ids.filter((x) => x !== id)
+  const at = next.indexOf(targetId)
+  if (at === -1) return ids
+  next.splice(position === 'after' ? at + 1 : at, 0, id)
+  return next
+}
+
+// Drop a task from every column's order, e.g. once it is de-prioritized or
+// deleted, so that if it comes back it is treated as newly placed.
+export function removeFromPriorityOrder(order, id) {
+  let changed = false
+  const next = {}
+  for (const [tag, ids] of Object.entries(order)) {
+    if (ids.includes(id)) {
+      next[tag] = ids.filter((x) => x !== id)
+      changed = true
+    } else {
+      next[tag] = ids
+    }
+  }
+  return changed ? next : order
 }
 
 // Remove completed tasks whose 14-day retention has elapsed.

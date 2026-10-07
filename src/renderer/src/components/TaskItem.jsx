@@ -5,7 +5,9 @@ import TaskMenu from './TaskMenu.jsx'
 import StatusChip from './StatusChip.jsx'
 import {
   RECURRENCE_UNITS,
+  dateInputToDueAt,
   describeRecurrence,
+  dueAtToDateInput,
   formatDueRelative,
   isDue,
   taskToInput,
@@ -13,7 +15,7 @@ import {
 } from '../utils/tasks.js'
 
 // The task's free-form status, edited alongside its description. Committed on
-// blur and on Enter rather than on every keystroke: the recurrence editor can
+// blur and on Enter rather than on every keystroke: the schedule editor can
 // commit per change because it is a checkbox and a number, but a text field
 // would put a full store write behind every letter. Clearing the field clears
 // the status.
@@ -134,27 +136,51 @@ function SubtaskEditor({ subtasks, onAddSubtask, onRemoveSubtask }) {
   )
 }
 
-// Schedules a task to recur every N days/weeks/months. Like the subtask editor,
-// it is only reachable while editing an existing task.
-function RecurrenceEditor({ task, onSetRecurrence }) {
+// Gives a task a due date, and optionally makes it recur every N
+// days/weeks/months from that date. Like the subtask editor, it is only
+// reachable while editing an existing task.
+function ScheduleEditor({ task, onSetSchedule }) {
   const [every, setEvery] = useState(task.recurrence?.every ?? 1)
   const [unit, setUnit] = useState(task.recurrence?.unit ?? 'week')
   const on = !!task.recurrence
 
-  function apply(enabled, nextEvery, nextUnit) {
+  function applyRecurrence(enabled, nextEvery, nextUnit) {
     const n = Math.max(1, Math.round(Number(nextEvery) || 1))
-    onSetRecurrence(enabled ? { every: n, unit: nextUnit } : null)
+    onSetSchedule({ recurrence: enabled ? { every: n, unit: nextUnit } : null })
   }
 
   return (
     <div className="recur-editor">
-      <span className="subtask-editor-label">Recurring</span>
+      <span className="subtask-editor-label">Due date</span>
+      <div className="recur-row">
+        <input
+          type="date"
+          className="due-date"
+          value={dueAtToDateInput(task.dueAt)}
+          onChange={(e) => {
+            // An empty value is the input's own clear control, or a date that
+            // is only partly typed — only an explicit clear should drop it.
+            const dueAt = dateInputToDueAt(e.target.value)
+            if (dueAt != null) onSetSchedule({ dueAt })
+          }}
+        />
+        {task.dueAt != null && (
+          <button
+            type="button"
+            className="btn-ghost"
+            title={on ? 'Clear the due date (also stops repeating)' : 'Clear the due date'}
+            onClick={() => onSetSchedule({ dueAt: null })}
+          >
+            Clear
+          </button>
+        )}
+      </div>
       <div className="recur-row">
         <label className="recur-toggle">
           <input
             type="checkbox"
             checked={on}
-            onChange={(e) => apply(e.target.checked, every, unit)}
+            onChange={(e) => applyRecurrence(e.target.checked, every, unit)}
           />
           Repeat every
         </label>
@@ -166,7 +192,7 @@ function RecurrenceEditor({ task, onSetRecurrence }) {
           disabled={!on}
           onChange={(e) => {
             setEvery(e.target.value)
-            if (on) apply(true, e.target.value, unit)
+            if (on) applyRecurrence(true, e.target.value, unit)
           }}
         />
         <div className="select-wrap">
@@ -175,7 +201,7 @@ function RecurrenceEditor({ task, onSetRecurrence }) {
             disabled={!on}
             onChange={(e) => {
               setUnit(e.target.value)
-              if (on) apply(true, every, e.target.value)
+              if (on) applyRecurrence(true, every, e.target.value)
             }}
           >
             {RECURRENCE_UNITS.map((u) => (
@@ -186,10 +212,12 @@ function RecurrenceEditor({ task, onSetRecurrence }) {
           </select>
         </div>
       </div>
-      {on && task.dueAt != null && (
+      {task.dueAt != null && (
         <span className="recur-next">
-          {formatDueRelative(task.dueAt, Date.now())} · the next occurrence is created
-          when this one is completed
+          {formatDueRelative(task.dueAt, Date.now())}
+          {on
+            ? ' · the next occurrence is created when this one is completed'
+            : ' · prioritized automatically on the day it is due'}
         </span>
       )}
     </div>
@@ -210,12 +238,16 @@ export default function TaskItem({
   onRemoveSubtask,
   onToggleSubtask,
   onSubtaskDragStart,
-  onSetRecurrence,
+  onSetSchedule,
   onSetStatus,
   knownStatuses = [],
   onOpenNotes,
   focused = false,
-  focusedSubtaskId = null
+  focusedSubtaskId = null,
+  // While this card is being dragged to a new place in its list.
+  dragging = false,
+  // Where a card dragged over this one would land: 'before', 'after' or null.
+  dropPosition = null
 }) {
   const [editing, setEditing] = useState(false)
   const subtasks = task.subtasks || []
@@ -228,7 +260,7 @@ export default function TaskItem({
 
   if (editing) {
     return (
-      <li className="task-item editing">
+      <li className="task-item editing" data-task-id={task.id}>
         <TaskInput
           initialValue={taskToInput(task)}
           submitLabel="Save"
@@ -249,16 +281,15 @@ export default function TaskItem({
             onRemoveSubtask={onRemoveSubtask}
           />
         )}
-        {onSetRecurrence && (
-          <RecurrenceEditor task={task} onSetRecurrence={onSetRecurrence} />
-        )}
+        {onSetSchedule && <ScheduleEditor task={task} onSetSchedule={onSetSchedule} />}
       </li>
     )
   }
 
   return (
     <li
-      className={`task-item${task.completed ? ' completed' : ''}${draggable ? ' draggable' : ''}${due ? ' due' : ''}${focused ? ' focused' : ''}${hasFocusedSubtask ? ' has-focused-subtask' : ''}`}
+      className={`task-item${task.completed ? ' completed' : ''}${draggable ? ' draggable' : ''}${due ? ' due' : ''}${focused ? ' focused' : ''}${hasFocusedSubtask ? ' has-focused-subtask' : ''}${dragging ? ' dragging' : ''}${dropPosition ? ` drop-${dropPosition}` : ''}`}
+      data-task-id={task.id}
       draggable={draggable}
       onDragStart={draggable ? onDragStart : undefined}
     >
@@ -299,7 +330,7 @@ export default function TaskItem({
               })}
             </span>
           )}
-          {task.recurrence && (
+          {task.recurrence ? (
             <span
               className={`recur-chip${due ? ' due' : ''}`}
               title={`Repeats ${describeRecurrence(task.recurrence)}`}
@@ -307,6 +338,15 @@ export default function TaskItem({
               {due ? '⏰' : '🔁'} {describeRecurrence(task.recurrence)}
               {task.dueAt != null && ` · ${formatDueRelative(task.dueAt, now)}`}
             </span>
+          ) : (
+            task.dueAt != null && (
+              <span
+                className={`recur-chip${due ? ' due' : ''}`}
+                title={`Due ${new Date(task.dueAt).toLocaleDateString()}`}
+              >
+                {due ? '⏰' : '📅'} {formatDueRelative(task.dueAt, now)}
+              </span>
+            )
           )}
           {children && <div className="task-meta">{children}</div>}
         </div>

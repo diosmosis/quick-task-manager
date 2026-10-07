@@ -26,6 +26,7 @@ const ADDED_COLUMNS = [
 // Keys used in the `settings` table (small bits of UI state that must be as
 // durable as the tasks themselves).
 const COLUMNS_SETTING = 'priorityColumns'
+const ORDER_SETTING = 'priorityOrder'
 
 const MAX_BACKUPS = 3
 const BACKUP_PREFIX = 'tasks-'
@@ -125,6 +126,20 @@ export function loadColumns() {
 
 export function saveColumns(columns) {
   return setSetting(COLUMNS_SETTING, Array.isArray(columns) ? columns : [])
+}
+
+// The hand-arranged order of tasks within each prioritization column, as
+// { [tag]: [taskId, …] }. Per column because a task with several tags sits in
+// several columns, and its place in one says nothing about its place in
+// another. Null when never stored.
+export function loadPriorityOrder() {
+  const stored = getSetting(ORDER_SETTING)
+  return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null
+}
+
+export function savePriorityOrder(order) {
+  const valid = order && typeof order === 'object' && !Array.isArray(order)
+  return setSetting(ORDER_SETTING, valid ? order : {})
 }
 
 // Durable, TTL-aware key/value storage for plugins. Plugins use it to remember

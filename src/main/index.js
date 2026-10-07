@@ -1,6 +1,14 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { initStore, loadTasks, saveTasks, loadColumns, saveColumns } from './store.js'
+import {
+  initStore,
+  loadTasks,
+  saveTasks,
+  loadColumns,
+  saveColumns,
+  loadPriorityOrder,
+  savePriorityOrder
+} from './store.js'
 import {
   emitEvent,
   initPlugins,
@@ -96,6 +104,8 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('tasks:save', (_event, tasks) => saveTasks(tasks))
     ipcMain.handle('columns:load', () => loadColumns())
     ipcMain.handle('columns:save', (_event, columns) => saveColumns(columns))
+    ipcMain.handle('order:load', () => loadPriorityOrder())
+    ipcMain.handle('order:save', (_event, order) => savePriorityOrder(order))
 
     // Synchronous saves used on window close so pending changes are flushed to
     // disk before the process exits.
@@ -113,6 +123,15 @@ if (!app.requestSingleInstanceLock()) {
         saveColumns(columns)
       } catch (err) {
         console.error('Failed to save columns synchronously:', err)
+      }
+      event.returnValue = true
+    })
+
+    ipcMain.on('order:save-sync', (event, order) => {
+      try {
+        savePriorityOrder(order)
+      } catch (err) {
+        console.error('Failed to save task order synchronously:', err)
       }
       event.returnValue = true
     })

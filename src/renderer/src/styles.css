@@ -155,6 +155,7 @@ body {
 /* Inputs and buttons */
 input[type='text'],
 input[type='number'],
+input[type='date'],
 input[type='password'],
 textarea,
 select {
@@ -176,6 +177,7 @@ textarea {
 
 input[type='text']:focus,
 input[type='number']:focus,
+input[type='date']:focus,
 input[type='password']:focus,
 textarea:focus,
 select:focus {
@@ -309,6 +311,21 @@ select:disabled {
   cursor: grabbing;
 }
 
+/* Reordering within a prioritization column: the card being moved fades, and
+   a bar in the gap above or below the card under the pointer shows where it
+   will land. Drawn with box-shadow so it takes no layout space. */
+.task-item.dragging {
+  opacity: 0.4;
+}
+
+.task-item.drop-before {
+  box-shadow: 0 -4px 0 -1px var(--accent);
+}
+
+.task-item.drop-after {
+  box-shadow: 0 4px 0 -1px var(--accent);
+}
+
 .task-item.completed .task-desc {
   text-decoration: line-through;
 }
@@ -369,8 +386,8 @@ select:disabled {
   font-size: 11px;
 }
 
-/* Recurring tasks: the schedule chip, and the "needs doing" state it takes on
-   once the task comes due. */
+/* Tasks with a due date (one-off or recurring): the schedule chip, and the
+   "needs doing" state it takes on once the task comes due. */
 .recur-chip {
   display: inline-flex;
   align-items: center;
@@ -458,7 +475,7 @@ select:disabled {
   width: 100%;
 }
 
-/* Recurrence editor (shown while editing a task) */
+/* Due date + recurrence editor (shown while editing a task) */
 .recur-editor {
   display: flex;
   flex-direction: column;
@@ -488,6 +505,11 @@ select:disabled {
   height: 15px;
   margin: 0;
   cursor: pointer;
+}
+
+.due-date {
+  min-width: 0;
+  color-scheme: dark;
 }
 
 .recur-every {

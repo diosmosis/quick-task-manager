@@ -35,7 +35,7 @@ export default function InboxView({
   onDelete,
   onAddSubtask,
   onRemoveSubtask,
-  onSetRecurrence,
+  onSetSchedule,
   onSetStatus,
   onOpenNotes
 }) {
@@ -135,7 +135,7 @@ export default function InboxView({
                 onEdit={(text) => onEdit(task.id, text)}
                 onAddSubtask={(text) => onAddSubtask(task.id, text)}
                 onRemoveSubtask={(subId) => onRemoveSubtask(task.id, subId)}
-                onSetRecurrence={(rec) => onSetRecurrence(task.id, rec)}
+                onSetSchedule={(patch) => onSetSchedule(task.id, patch)}
                 onSetStatus={(status) => onSetStatus(task.id, status)}
                 knownStatuses={statuses}
                 onOpenNotes={onOpenNotes}

@@ -9,13 +9,14 @@ import { closeForm, getTarget, subscribe as subscribeForm } from './utils/action
 import { collectTexts, invalidateAll, invalidateTexts, prime } from './utils/decorate.js'
 import { refresh as refreshTaskActions } from './utils/pluginActions.js'
 import {
-  applyDueRecurring,
+  applyDueTasks,
   createTask,
   createSubtask,
   createRecurrenceCopy,
   findFocusTarget,
   parseInput,
-  purgeExpired
+  purgeExpired,
+  removeFromPriorityOrder
 } from './utils/tasks.js'
 
 // The column list used to live here, in localStorage. It now lives in the
@@ -42,6 +43,9 @@ export default function App() {
   const [view, setView] = useState('inbox')
   const [now, setNow] = useState(Date.now())
   const [columns, setColumns] = useState([])
+  // The hand-arranged order of tasks within each prioritization column:
+  // { [tag]: [taskId, …] }. See sortByPriorityOrder.
+  const [priorityOrder, setPriorityOrder] = useState({})
   // The task the user is currently focused on. Intentionally in-memory only —
   // it must not persist beyond a single run.
   const [focusTaskId, setFocusTaskId] = useState(null)
@@ -52,8 +56,10 @@ export default function App() {
   const [notesTarget, setNotesTarget] = useState(null) // { id, readOnly } | null
   const loaded = useRef(false)
   const columnsLoaded = useRef(false)
+  const orderLoaded = useRef(false)
   const tasksRef = useRef(tasks)
   const columnsRef = useRef(columns)
+  const priorityOrderRef = useRef(priorityOrder)
   // A note that has been typed but not yet committed by the sheet's debounce.
   // Held here so the close-time flush can include it — see the flush effect.
   const notesDraftRef = useRef(null)
@@ -64,8 +70,8 @@ export default function App() {
     window.api.loadTasks().then(async (stored) => {
       if (cancelled) return
       const t = Date.now()
-      // Recurring tasks that came due while the app was closed are picked up here.
-      const next = applyDueRecurring(purgeExpired(stored, t), t)
+      // Tasks that came due while the app was closed are picked up here.
+      const next = applyDueTasks(purgeExpired(stored, t), t)
       // Decorate every description before the first paint, so tasks don't
       // render as plain text and then visibly gain their plugin links.
       await prime(collectTexts(next))
@@ -118,6 +124,20 @@ export default function App() {
     }
   }, [])
 
+  // Load the persisted in-column task order once on startup. Same rule as the
+  // column list: only mark it loaded once the read succeeded.
+  useEffect(() => {
+    let cancelled = false
+    window.api.loadPriorityOrder().then((stored) => {
+      if (cancelled) return
+      if (stored) setPriorityOrder(stored)
+      orderLoaded.current = true
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Keep refs to the latest state so the close-time flush can read them.
   useEffect(() => {
     tasksRef.current = tasks
@@ -126,6 +146,10 @@ export default function App() {
   useEffect(() => {
     columnsRef.current = columns
   }, [columns])
+
+  useEffect(() => {
+    priorityOrderRef.current = priorityOrder
+  }, [priorityOrder])
 
   // Persist tasks whenever they change (after the initial load).
   useEffect(() => {
@@ -146,6 +170,7 @@ export default function App() {
         : tasksRef.current
       if (loaded.current) window.api.saveTasksSync(list)
       if (columnsLoaded.current) window.api.saveColumnsSync(columnsRef.current)
+      if (orderLoaded.current) window.api.savePriorityOrderSync(priorityOrderRef.current)
     }
     window.addEventListener('beforeunload', flush)
     return () => window.removeEventListener('beforeunload', flush)
@@ -158,6 +183,11 @@ export default function App() {
     window.api.saveColumns(columns)
   }, [columns])
 
+  useEffect(() => {
+    if (!orderLoaded.current) return
+    window.api.savePriorityOrder(priorityOrder)
+  }, [priorityOrder])
+
   // Tick so time-based rules (15-min hide, 14-day purge, recurring due dates)
   // apply live.
   useEffect(() => {
@@ -166,7 +196,7 @@ export default function App() {
       setNow(t)
       setTasks((prev) => {
         const purged = purgeExpired(prev, t)
-        const next = applyDueRecurring(purged, t)
+        const next = applyDueTasks(purged, t)
         if (next !== purged) return next
         // Keep the previous array identity when nothing changed, so the tick
         // doesn't trigger a pointless re-save every 30s.
@@ -207,12 +237,36 @@ export default function App() {
       )
       const task = tasksRef.current.find((t) => t.id === id)
       if (task) emitPlugin('task:prioritized', id, { prioritized: !task.prioritized })
+      // A de-prioritized task gives up its place; prioritized again later, it
+      // joins the bottom of its columns like any newly prioritized task.
+      if (task && task.prioritized) {
+        setPriorityOrder((prev) => removeFromPriorityOrder(prev, id))
+      }
     },
     [emitPlugin]
   )
 
   const toggleComplete = useCallback((id) => {
     const before = tasksRef.current.find((t) => t.id === id)
+    // Made out here, not inside the updater, so the follow-up occurrence's id
+    // is known in time to give it its predecessor's place in the columns.
+    const copyId = crypto.randomUUID()
+    if (before && !before.completed && before.recurrence) {
+      setPriorityOrder((prev) => {
+        let changed = false
+        const next = {}
+        for (const [tag, ids] of Object.entries(prev)) {
+          const at = ids.indexOf(id)
+          if (at === -1) {
+            next[tag] = ids
+          } else {
+            next[tag] = [...ids.slice(0, at + 1), copyId, ...ids.slice(at + 1)]
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+    }
     if (before) {
       window.api.emitPluginEvent(
         before.completed ? 'task:uncompleted' : 'task:completed',
@@ -235,7 +289,9 @@ export default function App() {
       const done = { ...task, completed: true, completedAt: now }
       const next = prev.map((t) => (t.id === id ? done : t))
       // Finishing a recurring task schedules the next occurrence.
-      return task.recurrence ? [createRecurrenceCopy(done, now), ...next] : next
+      return task.recurrence
+        ? [{ ...createRecurrenceCopy(done, now), id: copyId }, ...next]
+        : next
     })
   }, [])
 
@@ -245,29 +301,35 @@ export default function App() {
   const deleteTask = useCallback((id) => {
     const task = tasksRef.current.find((t) => t.id === id)
     setTasks((prev) => prev.filter((t) => t.id !== id))
+    setPriorityOrder((prev) => removeFromPriorityOrder(prev, id))
     if (task) window.api.emitPluginEvent('task:deleted', { task })
   }, [])
 
-  // Enable/disable recurrence on an existing task. Enabling makes the task due
-  // immediately (so it is picked up as due right away); disabling clears the
-  // schedule but leaves the task itself untouched.
-  const setRecurrence = useCallback((id, recurrence) => {
+  // Set a task's due date and/or recurrence. `patch` holds whichever of
+  // `dueAt` and `recurrence` changed. A due date on its own is a one-off
+  // deadline; a recurring task always has one, so enabling recurrence on a task
+  // without a due date makes it due immediately (picked up as due right away),
+  // and clearing the due date also stops the recurrence. Disabling recurrence
+  // keeps the due date: the current occurrence still needs doing by then.
+  const setSchedule = useCallback((id, patch) => {
     const now = Date.now()
     setTasks((prev) => {
       const next = prev.map((t) => {
         if (t.id !== id) return t
-        if (!recurrence) {
-          return { ...t, recurrence: null, dueAt: null, autoPrioritizedFor: null }
-        }
+        let dueAt = 'dueAt' in patch ? patch.dueAt : t.dueAt
+        let recurrence = 'recurrence' in patch ? patch.recurrence : t.recurrence
+        if ('dueAt' in patch && dueAt == null) recurrence = null
+        if (recurrence && dueAt == null) dueAt = now
         return {
           ...t,
           recurrence,
-          dueAt: t.dueAt ?? now,
-          // A changed schedule is a new occurrence as far as auto-priority goes.
-          autoPrioritizedFor: t.recurrence ? t.autoPrioritizedFor : null
+          dueAt,
+          // `autoPrioritizedFor` is compared against `dueAt`, so a changed due
+          // date is already a new occurrence as far as auto-priority goes.
+          autoPrioritizedFor: dueAt == null ? null : t.autoPrioritizedFor
         }
       })
-      return applyDueRecurring(next, now)
+      return applyDueTasks(next, now)
     })
   }, [])
 
@@ -366,6 +428,19 @@ export default function App() {
 
   const removeColumn = useCallback((tag) => {
     setColumns((prev) => prev.filter((t) => t !== tag))
+    // Its arrangement goes with it; re-adding the column starts fresh.
+    setPriorityOrder((prev) => {
+      if (!(tag in prev)) return prev
+      const { [tag]: _removed, ...rest } = prev
+      return rest
+    })
+  }, [])
+
+  // Replace a column's task order with `ids` — the column's visible tasks in
+  // their new order. Writing the whole list (rather than one move) also prunes
+  // ids of tasks that have since left the column.
+  const reorderTasks = useCallback((tag, ids) => {
+    setPriorityOrder((prev) => ({ ...prev, [tag]: ids }))
   }, [])
 
   // Move the column `fromTag` so it sits at the position of `toTag`.
@@ -455,7 +530,7 @@ export default function App() {
             onDelete={deleteTask}
             onAddSubtask={addSubtask}
             onRemoveSubtask={removeSubtask}
-            onSetRecurrence={setRecurrence}
+            onSetSchedule={setSchedule}
             onSetStatus={setStatus}
             onOpenNotes={openNotes}
           />
@@ -468,6 +543,8 @@ export default function App() {
             onAddColumn={addColumn}
             onRemoveColumn={removeColumn}
             onReorderColumns={reorderColumns}
+            priorityOrder={priorityOrder}
+            onReorderTasks={reorderTasks}
             focusTask={focusTask}
             onSetFocus={setFocusTaskId}
             onClearFocus={() => setFocusTaskId(null)}
@@ -477,7 +554,7 @@ export default function App() {
             onAddSubtask={addSubtask}
             onRemoveSubtask={removeSubtask}
             onToggleSubtask={toggleSubtask}
-            onSetRecurrence={setRecurrence}
+            onSetSchedule={setSchedule}
             onSetStatus={setStatus}
             onOpenNotes={openNotes}
           />
