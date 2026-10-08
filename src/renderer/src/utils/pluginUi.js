@@ -28,6 +28,25 @@ export function pluginComponent(plugin, actionId) {
   return (registry[plugin] && registry[plugin][actionId]) || null
 }
 
+// Tabs contributed by plugins, in `plugins/<name>/views/<view-id>.jsx`. Bundled
+// for the same reason as forms, so the same limit applies: a plugin in the
+// user-data directory may declare a view but has no component to show in it,
+// and gets no tab.
+const viewModules = import.meta.glob('../../../../plugins/*/views/*.jsx', { eager: true })
+
+const viewRegistry = {}
+for (const [path, mod] of Object.entries(viewModules)) {
+  const match = path.match(/\/plugins\/([^/]+)\/views\/([^/]+)\.jsx$/)
+  if (!match || !mod || !mod.default) continue
+  const [, plugin, viewId] = match
+  if (!viewRegistry[plugin]) viewRegistry[plugin] = {}
+  viewRegistry[plugin][viewId] = mod.default
+}
+
+export function pluginView(plugin, viewId) {
+  return (viewRegistry[plugin] && viewRegistry[plugin][viewId]) || null
+}
+
 // A `fetch` for a plugin's form, bound to that plugin. The request is made in
 // the main process — see runPluginFetch in src/main/plugins.js for why — and
 // the reply is a plain description of the response, so a real Response is

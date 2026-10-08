@@ -19,6 +19,7 @@ import {
   runTaskAction,
   runTaskActions,
   runTextDecorate,
+  runViewQuery,
   safeExternalUrl,
   setPluginConfig,
   setPluginEnabled
@@ -158,6 +159,11 @@ if (!app.requestSingleInstanceLock()) {
     // the plugin host restricts each caller to the origins that plugin names.
     ipcMain.handle('plugins:fetch', (_event, name, url, init) =>
       runPluginFetch(name, url, init)
+    )
+
+    // A plugin's own tab asking its plugin for data (its stored history, say).
+    ipcMain.handle('plugins:view-query', (_event, name, viewId, query) =>
+      runViewQuery(name, viewId, query)
     )
 
     ipcMain.handle('shell:open-external', (_event, url) => openExternal(url))

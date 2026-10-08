@@ -50,11 +50,12 @@ trusted code, exactly as the app itself is. Only install ones you trust.
 
 ## Hooks
 
-There are three kinds. **Filters** are chained: each enabled plugin receives the
+There are four kinds. **Filters** are chained: each enabled plugin receives the
 previous value and returns a new one. **Events** are fire-and-forget; the
 return value is ignored. **Providers** are asked independently: every enabled
 plugin gets the same input and the answers are concatenated, so one plugin never
-sees or changes another's. A hook that throws is logged and skipped — it cannot
+sees or changes another's. A **request** is put to one plugin only, the one
+whose own UI is asking. A hook that throws is logged and skipped — it cannot
 break the app.
 
 | Hook | Kind | Payload |
@@ -63,6 +64,7 @@ break the app.
 | `task:actions` | provider | `{ task }` → `[action]` |
 | `task:action` | event | `{ task, actionId }`, when the user picks one |
 | `ui:origins` | provider | `{}` → `[origin]` your form may request |
+| `view:query` | request | `{ viewId, query }` → data for your own tab |
 | `app:ready` | event | `{}`, once the plugin registry has loaded |
 | `task:created` | event | `{ task }` |
 | `task:updated` | event | `{ task }` |
@@ -209,6 +211,51 @@ normally whatever its status, so `response.status`, `response.headers` and the
 body are all yours to report. Do report them: services explain a refusal in
 different places, and a form that shows only a status code makes its own
 failures unactionable. `plugins/jira/ui/create-issue.jsx` is a worked example.
+
+### Views: a tab of your own
+
+A plugin can add a tab to the app's header by declaring it and shipping a
+React component for it, in `views/<view-id>.jsx`:
+
+```js
+module.exports = {
+  views: [{ id: 'stats', label: 'Stats' }],   // id is the file name
+  hooks: {
+    'view:query': ({ viewId, query }, ctx) => ctx.storage.get('history')?.value ?? {}
+  }
+}
+```
+
+```
+plugins/stats/
+  index.js             hooks, the view declaration
+  views/stats.jsx      the tab's component (may import its own .css)
+```
+
+The tab appears after **Archive** while the plugin is enabled, and goes away —
+returning the user to the Inbox if they were on it — when it is disabled. The
+component is given:
+
+| | |
+| --- | --- |
+| `tasks` | the app's task list, read-only (there is no way to change it from a view) |
+| `now` | the app's clock, which ticks every 30 seconds |
+| `config` | your saved configuration values |
+| `query(payload)` | runs your `view:query` hook in the main process and resolves with what it returns |
+| `openExternal(url)` | open an `http(s)` URL in the system browser |
+
+`query` is how a view reaches anything only the main process has, such as
+`ctx.storage`. What the hook returns must be plain data (it is structured-
+cloned on the way); a hook that throws, or returns something that cannot be
+cloned, makes `query` reject with the message. Like forms, a view that throws
+while rendering is caught and shown in place of the tab's content.
+
+The same restriction as forms applies, for the same reason: **views are
+compiled into the app**, so only plugins in the repo's `plugins/` folder can
+ship one, and editing it needs `npm run build`. A plugin that declares a view
+but ships no component gets no tab.
+
+`plugins/stats` is a worked example.
 
 ## The context object
 

@@ -1,30 +1,6 @@
-import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { makeFetch, pluginComponent } from '../utils/pluginUi.js'
-
-// A plugin's form component is ordinary app code once it is bundled, so a throw
-// inside one would take the whole window down with it. This keeps the failure
-// inside the dialog, where it can be read and dismissed.
-class FormBoundary extends Component {
-  constructor(props) {
-    super(props)
-    this.state = { error: null }
-  }
-
-  static getDerivedStateFromError(error) {
-    return { error: String((error && error.message) || error) }
-  }
-
-  componentDidCatch(error) {
-    console.error(`Plugin form ${this.props.label} failed:`, error)
-  }
-
-  render() {
-    if (this.state.error) {
-      return <div className="plugin-form-error">{this.state.error}</div>
-    }
-    return this.props.children
-  }
-}
+import PluginBoundary from './PluginBoundary.jsx'
 
 // Hosts the component a plugin ships for one of its actions. Everything the
 // form does — which fields it has, what it asks its service, what it makes of
@@ -129,7 +105,7 @@ export default function PluginFormHost({ task, action, onDone, onClose }) {
           )}
           {Form && !config && <div className="plugin-form-status">Loading…</div>}
           {Form && config && (
-            <FormBoundary label={`${action.plugin}:${action.id}`}>
+            <PluginBoundary label={`${action.plugin}:${action.id}`}>
               <Form
                 task={task}
                 config={config}
@@ -139,7 +115,7 @@ export default function PluginFormHost({ task, action, onDone, onClose }) {
                 onDone={done}
                 onCancel={close}
               />
-            </FormBoundary>
+            </PluginBoundary>
           )}
         </div>
       </section>

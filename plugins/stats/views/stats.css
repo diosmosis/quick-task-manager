@@ -1,0 +1,276 @@
+/* Stats tab. Shipped with the plugin and bundled alongside its view, so the
+   app's own stylesheet knows nothing about it. Colors come from the app's
+   tokens; the one data hue is --accent. */
+
+.stats-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.stats-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stats-heading {
+  margin: 0;
+  font-size: 18px;
+}
+
+.stats-range {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+
+.stats-range-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.stats-range-btn:hover {
+  color: var(--text);
+}
+
+.stats-range-btn.active {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+.stats-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.stats-tile {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.stats-tile-value {
+  font-size: 28px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-tile-label {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.stats-tile-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.stats-section {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px 16px;
+}
+
+.stats-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.stats-section-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.stats-section-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.stats-table-toggle {
+  font-size: 12px;
+}
+
+/* Daily column chart */
+
+.stats-chart-readout {
+  font-size: 12px;
+  color: var(--text-dim);
+  height: 18px;
+  /* Clear of the top axis tick, which sits half above its gridline. */
+  margin-bottom: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-chart-plot {
+  display: flex;
+  gap: 8px;
+  height: 180px;
+}
+
+.stats-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: right;
+  min-width: 18px;
+  /* Centre each tick on its gridline. */
+  margin: -7px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-chart-bars {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  /* The 2px surface gap between adjacent columns. */
+  gap: 2px;
+}
+
+.stats-chart-grid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.stats-chart-grid span {
+  border-top: 1px solid var(--border);
+}
+
+.stats-chart-slot {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 4px 4px 0 0;
+}
+
+.stats-chart-slot.hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.stats-chart-bar {
+  width: 100%;
+  max-width: 24px;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 4px 4px 0 0;
+}
+
+.stats-chart-slot.hover .stats-chart-bar {
+  filter: brightness(1.15);
+}
+
+.stats-chart-dates {
+  display: flex;
+  gap: 2px;
+  /* Line up with the bars: the axis column plus the plot's gap. */
+  padding-left: 26px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.stats-chart-dates span {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: visible;
+  text-align: center;
+}
+
+/* Today's label is anchored to the plot's edge rather than centred on a slot
+   that, at 90 days, is narrower than the text — which would spill past the
+   card. A flex end, unlike text-align, overflows towards the start. */
+.stats-chart-dates span:last-child {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-table th,
+.stats-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stats-table th {
+  color: var(--text-dim);
+}
+
+/* Top tags */
+
+.stats-tags {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stats-tag-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 160px) 1fr 32px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.stats-tag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-tag-track {
+  height: 12px;
+}
+
+.stats-tag-bar {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--accent);
+  border-radius: 0 4px 4px 0;
+}
+
+.stats-tag-count {
+  text-align: right;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}

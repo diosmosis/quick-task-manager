@@ -5,9 +5,15 @@ import ArchiveView from './components/ArchiveView.jsx'
 import PluginsView from './components/PluginsView.jsx'
 import NotesSheet from './components/NotesSheet.jsx'
 import PluginFormHost from './components/PluginFormHost.jsx'
+import PluginViewHost from './components/PluginViewHost.jsx'
 import { closeForm, getTarget, subscribe as subscribeForm } from './utils/actionForm.js'
 import { collectTexts, invalidateAll, invalidateTexts, prime } from './utils/decorate.js'
 import { refresh as refreshTaskActions } from './utils/pluginActions.js'
+import {
+  getViews as getPluginViews,
+  refresh as refreshPluginViews,
+  subscribe as subscribePluginViews
+} from './utils/pluginViews.js'
 import {
   applyDueTasks,
   createTask,
@@ -90,9 +96,11 @@ export default function App() {
     // Which plugins contribute task actions can change with the same event, so
     // the ⋮ menu appears or disappears live rather than waiting for a reload.
     refreshTaskActions()
+    refreshPluginViews()
     const offChanged = window.api.onPluginsChanged((epoch) => {
       invalidateAll(epoch)
       refreshTaskActions()
+      refreshPluginViews()
     })
     const offInvalidated = window.api.onDecorationInvalidated((texts) =>
       invalidateTexts(texts)
@@ -479,6 +487,14 @@ export default function App() {
   // card — see utils/actionForm.js.
   const formTarget = useSyncExternalStore(subscribeForm, getTarget)
 
+  // Tabs contributed by enabled plugins. Disabling the plugin whose tab is open
+  // leaves nothing to show, so the tab bar falls back to the Inbox.
+  const pluginViews = useSyncExternalStore(subscribePluginViews, getPluginViews)
+  const activePluginView = pluginViews.find((v) => v.key === view) || null
+  useEffect(() => {
+    if (view.startsWith('plugin:') && !activePluginView) setView('inbox')
+  }, [view, activePluginView])
+
   // What a form hands back when it finishes. Only the task text is the app's to
   // change; anything else the plugin did, it did itself.
   const finishForm = useCallback(
@@ -500,6 +516,7 @@ export default function App() {
             ['inbox', 'Inbox'],
             ['priority', 'Prioritize'],
             ['archive', 'Archive'],
+            ...pluginViews.map((v) => [v.key, v.label]),
             ['plugins', 'Plugins']
           ].map(([key, label]) => (
             <button
@@ -572,6 +589,14 @@ export default function App() {
           />
         )}
         {view === 'plugins' && <PluginsView />}
+        {activePluginView && (
+          <PluginViewHost
+            key={activePluginView.key}
+            view={activePluginView}
+            tasks={tasks}
+            now={now}
+          />
+        )}
       </main>
 
       {notesTask && (

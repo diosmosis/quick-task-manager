@@ -19,6 +19,10 @@
 //     to a task's ⋮ menu. Deliberately not a filter: a menu is not something
 //     one plugin should be able to edit on another's behalf.
 //
+// Besides hooks, a plugin may declare `views`: tabs of its own, rendered by a
+// component it ships in `views/<id>.jsx`. A view asks its plugin for data
+// through the `view:query` hook — see runViewQuery.
+//
 // See plugins/README.md for the plugin-author-facing documentation.
 import { app, net, shell } from 'electron'
 import { createRequire } from 'node:module'
@@ -127,17 +131,40 @@ function uncache(file) {
   }
 }
 
+const MAX_VIEWS_PER_PLUGIN = 5
+const VIEW_ID = /^[a-z0-9][a-z0-9-]*$/i
+
+// The tabs a plugin declares. Each becomes a tab only if the renderer also has
+// a bundled component for it, so a declaration here is a request, not a
+// guarantee. The id doubles as the component's file name, hence the pattern.
+function validViews(list) {
+  if (!Array.isArray(list)) return []
+  const out = []
+  for (const item of list) {
+    if (out.length >= MAX_VIEWS_PER_PLUGIN) break
+    if (!item || typeof item.id !== 'string' || !VIEW_ID.test(item.id)) continue
+    if (typeof item.label !== 'string' || !item.label) continue
+    if (out.some((v) => v.id === item.id)) continue
+    out.push({ id: item.id, label: item.label.slice(0, 40) })
+  }
+  return out
+}
+
 function validate(mod, fallbackName) {
   if (!mod || typeof mod !== 'object') throw new Error('module does not export an object')
   const hooks = mod.hooks
   if (!hooks || typeof hooks !== 'object') throw new Error('module exports no `hooks` object')
   const names = Object.keys(hooks).filter((h) => typeof hooks[h] === 'function')
-  if (names.length === 0) throw new Error('module registers no hooks')
+  const views = validViews(mod.views)
+  if (names.length === 0 && views.length === 0) {
+    throw new Error('module registers no hooks and declares no views')
+  }
   return {
     name: typeof mod.name === 'string' && mod.name ? mod.name : fallbackName,
     title: typeof mod.title === 'string' && mod.title ? mod.title : fallbackName,
     description: typeof mod.description === 'string' ? mod.description : '',
     config: Array.isArray(mod.config) ? mod.config : [],
+    views,
     hooks,
     hookNames: names
   }
@@ -218,6 +245,7 @@ function loadAll() {
           title: fallbackName,
           description: '',
           config: [],
+          views: [],
           hooks: {},
           hookNames: [],
           file,
@@ -255,6 +283,7 @@ export function listPlugins() {
       title: p.title,
       description: p.description,
       config: p.config,
+      views: p.views,
       hooks: p.hookNames,
       source: p.source,
       enabled: p.enabled,
@@ -448,6 +477,29 @@ export async function runTaskAction(pluginName, actionId, task) {
     return { ok: true }
   } catch (err) {
     console.error(`Plugin ${plugin.name} hook task:action failed:`, err)
+    return { ok: false, message: String((err && err.message) || err) }
+  }
+}
+
+// Answers a plugin view's request for data. A view runs in the renderer and
+// cannot reach the plugin's `ctx.storage`, so it asks here and the plugin's
+// `view:query` hook answers from the main process. What comes back must
+// survive structured clone; anything that does not is reported as a failure
+// rather than arriving half-formed.
+export async function runViewQuery(pluginName, viewId, query) {
+  const plugin = plugins.find((p) => p.name === pluginName)
+  if (!plugin || plugin.error || !plugin.enabled) {
+    return { ok: false, message: 'That plugin is no longer available.' }
+  }
+  const hook = plugin.hooks['view:query']
+  if (typeof hook !== 'function') {
+    return { ok: false, message: 'That plugin does not answer view queries.' }
+  }
+  try {
+    const data = await hook({ viewId, query: query ?? null }, plugin.ctx)
+    return { ok: true, data: structuredClone(data ?? null) }
+  } catch (err) {
+    console.error(`Plugin ${plugin.name} hook view:query failed:`, err)
     return { ok: false, message: String((err && err.message) || err) }
   }
 }

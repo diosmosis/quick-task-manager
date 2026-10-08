@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('api', {
   // Backs the `fetch` handed to a plugin's form component. Scoped to a plugin
   // name so the main process can hold it to that plugin's declared origins.
   pluginFetch: (name, url, init) => ipcRenderer.invoke('plugins:fetch', name, url, init),
+  // Backs the `query` handed to a plugin's view component.
+  pluginViewQuery: (name, viewId, query) =>
+    ipcRenderer.invoke('plugins:view-query', name, viewId, query),
   emitPluginEvent: (name, payload) => ipcRenderer.send('plugins:event', name, payload),
   onPluginsChanged: (cb) => subscribe('plugins:changed', cb),
   onDecorationInvalidated: (cb) => subscribe('plugins:decoration-invalidated', cb),
